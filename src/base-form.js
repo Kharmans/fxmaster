@@ -512,6 +512,43 @@ export class FXMasterBaseFormV2 extends Base {
   static _fxmReadInputValue(el) {
     if (!el) return undefined;
 
+    const tag = (el.tagName ?? "").toLowerCase();
+    if (tag === "multi-select") {
+      const mv = el?.value;
+      if (mv instanceof Set) return Array.from(mv);
+      if (Array.isArray(mv)) return mv;
+
+      const tags = el?.querySelectorAll?.("tag") ?? [];
+      if (tags.length) {
+        const vals = Array.from(tags)
+          .map((t) => t.value)
+          .filter((v) => v != null && v !== "");
+        if (vals.length) return vals;
+      }
+
+      const inner = el?.querySelector?.("select[multiple]");
+      if (inner instanceof HTMLSelectElement) {
+        return Array.from(inner.selectedOptions).map((o) => o.value);
+      }
+
+      const hidden = el?.querySelectorAll?.('input[type="hidden"][name$="[]"]') ?? [];
+      if (hidden.length) {
+        const vals = Array.from(hidden)
+          .map((h) => h.value)
+          .filter((v) => v != null && v !== "");
+        if (vals.length) return vals;
+      }
+
+      if (typeof mv === "string" && mv.length) {
+        try {
+          const parsed = JSON.parse(mv);
+          if (Array.isArray(parsed)) return parsed;
+        } catch {}
+      }
+
+      return [];
+    }
+
     if (el instanceof HTMLSelectElement) {
       if (el.multiple) return Array.from(el.selectedOptions).map((o) => o.value);
       return el.value;
@@ -526,12 +563,11 @@ export class FXMasterBaseFormV2 extends Base {
       return el.value;
     }
 
-    const tag = (el.tagName ?? "").toLowerCase();
     if (tag === "color-picker") {
       const v = el.value ?? el.getAttribute?.("value");
       return v;
     }
-
+    if (el?.value instanceof Set) return Array.from(el.value);
     return el.value ?? el.getAttribute?.("value");
   }
 

@@ -35,7 +35,6 @@ export class PredatorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     this.ensureVec4Uniform("srcFrame", [0, 0, 1, 1]);
     this.ensureVec2Uniform("camFrac", [0, 0]);
 
-    // Effect params
     u.time = 0.0;
     u.seed = Math.random() * 1000.0;
     u.speedPx = 0.0;
@@ -44,7 +43,6 @@ export class PredatorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     u.contrast = 1.5;
     u.aaPx = 1.0;
 
-    // UI param uniforms
     this._period = 0.0;
     this.period = num(options?.period?.value ?? options?.period, 0.0);
     this.lineWidth = num(options?.lineWidth?.value ?? options?.lineWidth, 3.0);
@@ -68,6 +66,7 @@ export class PredatorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   static get parameters() {
     return {
       belowTokens: { label: "FXMASTER.Params.BelowTokens", type: "checkbox", value: false },
+      soundFxEnabled: { label: "FXMASTER.Params.SoundFxEnabled", type: "checkbox", value: false },
       noise: { label: "FXMASTER.Params.Noise", type: "range", max: 1.0, min: 0.0, step: 0.1, value: 0.1 },
       period: { label: "FXMASTER.Params.Speed", type: "range", max: 0.1, min: 0.0, step: 0.001, value: 0.001 },
       lineWidth: { label: "FXMASTER.Params.LineWidth", type: "range", max: 10.0, min: 0.5, step: 0.5, value: 3.0 },

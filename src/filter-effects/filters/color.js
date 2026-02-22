@@ -34,8 +34,6 @@ export class ColorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     this.initMaskUniforms(u, { withStrength: true, strengthDefault: 1.0 });
     this.initFadeUniforms(u);
     this.initRegionFadeUniforms(u, { maxEdges: MAX_EDGES });
-
-    // Pipeline consistency uniforms
     this.ensureVec4Uniform("srcFrame", [0, 0, 1, 1]);
     this.ensureVec2Uniform("camFrac", [0, 0]);
 
@@ -69,6 +67,7 @@ export class ColorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   static get parameters() {
     return {
       belowTokens: { label: "FXMASTER.Params.BelowTokens", type: "checkbox", value: false },
+      soundFxEnabled: { label: "FXMASTER.Params.SoundFxEnabled", type: "checkbox", value: false },
       color: {
         label: "FXMASTER.Params.Tint",
         type: "color",

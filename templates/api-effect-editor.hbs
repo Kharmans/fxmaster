@@ -1,0 +1,129 @@
+{{#if missing}}
+  <p class="fxmaster-api-effect-empty">{{localize "FXMASTER.Common.ApiEffectMissing"}}</p>
+{{else}}
+  {{#if isParticle}}
+    <section class="fxmaster-api-effect-editor fxmaster-api-effect-editor--particle">
+      <div
+        class="fxmaster-particles-row open"
+        data-type="{{type}}"
+        data-action="toggleCollapse"
+        title="{{label}}"
+      >
+        <div class="fxmaster-particle-name">
+          {{#if iconImg}}
+            <img class="fxmaster-particle-icon"
+                 src="{{iconImg}}"
+                 width="30" height="30"
+                 alt="{{label}} Icon">
+          {{else}}
+            <i class="fa-solid fa-circle-notch"></i>
+          {{/if}}
+          <span class="fxmaster-api-effect-title">{{label}}</span>
+          <span class="fxmaster-api-effect-id">{{id}}</span>
+        </div>
+
+        <span class="fxmaster-collapse-arrow fxmaster-arrow-row">
+          <i class="fa-solid fa-chevron-down"></i>
+        </span>
+
+        <button
+          type="button"
+          class="fxmaster-api-effect-delete"
+          data-action="deleteApiEffect"
+          data-tooltip="{{localize 'FXMASTER.Common.ApiEffectsDelete'}}"
+        >
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+
+      <div class="fxmaster-particle-expand">
+        <div class="fxmaster-api-effect-hint">
+          <div><strong>{{localize "FXMASTER.Common.ApiEffectsKind"}}:</strong> {{kindLabel}}</div>
+          <div><strong>{{localize "FXMASTER.Common.ApiEffectsType"}}:</strong> {{type}}</div>
+        </div>
+
+        <div class="fxmaster-particle-params">
+          {{#each effect.parameters as |parameterConfig parameterName|}}
+            {{#if (fxmasterShouldRenderParam "particle" ../type parameterName)}}
+              <label class="fxmaster-param-label">
+                {{localize parameterConfig.label}}
+
+                {{{fxmasterParameter
+                      ../effect
+                      parameterConfig
+                      parameterName
+                      ../options
+                   }}}
+              </label>
+            {{else}}
+              {{{fxmasterHiddenParameter
+                    ../effect
+                    parameterConfig
+                    parameterName
+                    ../options
+              }}}
+            {{/if}}
+          {{/each}}
+        </div>
+      </div>
+    </section>
+  {{else}}
+    <section class="fxmaster-api-effect-editor fxmaster-api-effect-editor--filter">
+      <div
+        class="fxmaster-filters-row open"
+        data-type="{{type}}"
+        data-action="toggleCollapse"
+        title="{{label}}"
+      >
+        <div class="fxmaster-filter-name">
+          <i class="{{iconClass}}"></i>
+          <span class="fxmaster-api-effect-title">{{label}}</span>
+          <span class="fxmaster-api-effect-id">{{id}}</span>
+        </div>
+
+        <span class="fxmaster-collapse-arrow">
+          <i class="fa-solid fa-chevron-down"></i>
+        </span>
+
+        <button
+          type="button"
+          class="fxmaster-api-effect-delete"
+          data-action="deleteApiEffect"
+          data-tooltip="{{localize 'FXMASTER.Common.ApiEffectsDelete'}}"
+        >
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+
+      <div class="fxmaster-filter-expand">
+        <div class="fxmaster-api-effect-hint">
+          <div><strong>{{localize "FXMASTER.Common.ApiEffectsKind"}}:</strong> {{kindLabel}}</div>
+          <div><strong>{{localize "FXMASTER.Common.ApiEffectsType"}}:</strong> {{type}}</div>
+        </div>
+
+        <div class="fxmaster-filter-params">
+          {{#each effect.parameters as |parameterConfig parameterName|}}
+            {{#if (fxmasterShouldRenderParam "filter" ../type parameterName)}}
+              <label>
+                {{localize parameterConfig.label}}
+                {{{fxmasterParameter
+                      ../effect
+                      parameterConfig
+                      parameterName
+                      ../options
+                 }}}
+              </label>
+            {{else}}
+              {{{fxmasterHiddenParameter
+                    ../effect
+                    parameterConfig
+                    parameterName
+                    ../options
+              }}}
+            {{/if}}
+          {{/each}}
+        </div>
+      </div>
+    </section>
+  {{/if}}
+{{/if}}

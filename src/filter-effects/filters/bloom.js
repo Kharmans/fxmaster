@@ -24,12 +24,9 @@ export class BloomFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     this.initMaskUniforms(u, { withStrength: true, strengthDefault: 1.0 });
     this.initFadeUniforms(u);
     this.initRegionFadeUniforms(u, { maxEdges: MAX_EDGES });
-
-    // Kept for pipeline consistency
     this.ensureVec4Uniform("srcFrame", [0, 0, 1, 1]);
     this.ensureVec2Uniform("camFrac", [0, 0]);
 
-    // Effect params
     u.threshold = typeof u.threshold === "number" ? u.threshold : 0.5;
     u.bloomScale = typeof u.bloomScale === "number" ? u.bloomScale : 0.1;
     u.blurRadius = typeof u.blurRadius === "number" ? u.blurRadius : 1.0;
@@ -50,6 +47,7 @@ export class BloomFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   static get parameters() {
     return {
       belowTokens: { label: "FXMASTER.Params.BelowTokens", type: "checkbox", value: false },
+      soundFxEnabled: { label: "FXMASTER.Params.SoundFxEnabled", type: "checkbox", value: false },
       blur: { label: "FXMASTER.Params.Blur", type: "range", max: 10.0, min: 0.0, step: 1.0, value: 1.0 },
       bloomScale: { label: "FXMASTER.Params.Bloom", type: "range", max: 1.0, min: 0.0, step: 0.1, value: 0.1 },
       threshold: { label: "FXMASTER.Params.Threshold", type: "range", max: 1.0, min: 0.0, step: 0.1, value: 0.5 },

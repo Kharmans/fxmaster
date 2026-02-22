@@ -27,15 +27,24 @@
     <div class="fxmaster-filter-expand">
       <div class="fxmaster-filter-params">
         {{#each filter.parameters as |parameterConfig parameterName|}}
-          <label>
-            {{localize parameterConfig.label}}
-            {{{fxmasterParameter
+          {{#if (fxmasterShouldRenderParam "filter" type parameterName)}}
+            <label>
+              {{localize parameterConfig.label}}
+              {{{fxmasterParameter
+                    filter
+                    parameterConfig
+                    parameterName
+                    (getEffectParams ../../activeFilters ../../passiveFilters type)
+                 }}}
+            </label>
+          {{else}}
+            {{{fxmasterHiddenParameter
                   filter
                   parameterConfig
                   parameterName
                   (getEffectParams ../../activeFilters ../../passiveFilters type)
-               }}}
-          </label>
+            }}}
+          {{/if}}
         {{/each}}
       </div>
     </div>

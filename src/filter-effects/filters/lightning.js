@@ -53,6 +53,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
 
     const base = {
       belowTokens: { label: "FXMASTER.Params.BelowTokens", type: "checkbox", value: false },
+      soundFxEnabled: { label: "FXMASTER.Params.SoundFxEnabled", type: "checkbox", value: false },
       frequency: { label: "FXMASTER.Params.Period", type: "range", max: 10000, min: 100, step: 5, value: 500 },
       spark_duration: { label: "FXMASTER.Params.Duration", type: "range", max: 2000, min: 100, step: 5, value: 300 },
       brightness: { label: "FXMASTER.Params.Brightness", type: "range", max: 4.0, min: 0.0, step: 0.1, value: 1.3 },

@@ -54,6 +54,9 @@ uniform float uFadePx;      // CSS px
 uniform float uUsePct;      // 1 => use uFadePct
 uniform float uFadePct;     // 0..1
 
+/* SDF-backed polygon % fades (used for multi-shape regions) */
+uniform float uUseSdf;        // 1 => use SDF for polygon % fades
+
 // Polygon edges (percent mode)
 #define MAX_EDGES 64
 uniform float uEdgeCount;
@@ -158,8 +161,8 @@ float fadePctPoly_edges(vec2 pW, float pct) {
   float inradFallback = 0.5 * max(uSdfScaleOff.x, 1e-6);
   float inrad  = (uSdfInsideMax > 0.0) ? uSdfInsideMax : inradFallback;
   float band   = max(pct * inrad, 1e-6);
-  float tau    = max(uSmoothKWorld, band * 0.25); // 25% of band or world hint
 
+  // Use the true minimum distance to any segment.
   float dMin = 1e20;
   for (int i = 0; i < MAX_EDGES; ++i) {
     if (float(i) >= uEdgeCount) break;
@@ -167,16 +170,18 @@ float fadePctPoly_edges(vec2 pW, float pct) {
     float di = distToSegment(pW, AB.xy, AB.zw);
     dMin = min(dMin, di);
   }
-  float sumExp = 0.0;
-  for (int i = 0; i < MAX_EDGES; ++i) {
-    if (float(i) >= uEdgeCount) break;
-    vec4 AB = uEdges[i];
-    float di = distToSegment(pW, AB.xy, AB.zw);
-    sumExp += exp(-(di - dMin) / max(tau, 1e-6));
-  }
-  float d = lseSmoothMin(dMin, sumExp, tau);
-  return clamp(d / band, 0.0, 1.0);
+
+  return clamp(dMin / band, 0.0, 1.0);
 }
+
+float fadePctPoly_sdf(vec2 pW, float pct) {
+  float inradFallback = 0.5 * max(uSdfScaleOff.x, 1e-6);
+  float inrad = (uSdfInsideMax > 0.0) ? uSdfInsideMax : inradFallback;
+  float band  = max(pct * inrad, 1e-6);
+  float insideD = max(-sdPolySmooth(pW), 0.0);
+  return clamp(insideD / band, 0.0, 1.0);
+}
+
 
 /* ---------- main ---------- */
 vec3 brightPassWeighted(vec2 uv, float w, float thr) {
@@ -217,7 +222,9 @@ void main(void) {
     if (pct > 0.0) {
       if      (uRegionShape == 1) fadeEdge = fadePctRect(pW, pct);
       else if (uRegionShape == 2) fadeEdge = fadePctEllipse(pW, pct);
-      else if (uRegionShape == 0) fadeEdge = fadePctPoly_edges(pW, pct);
+      else if (uRegionShape == 0) {
+        fadeEdge = (uUseSdf > 0.5) ? fadePctPoly_sdf(pW, pct) : fadePctPoly_edges(pW, pct);
+      }
     }
   } else {
     float fw = (uFadeWorld > 0.0) ? uFadeWorld

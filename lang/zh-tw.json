@@ -3,7 +3,6 @@
     "LANGUAGE": "正體中文",
     "MAINTAINERS": "fvtt-cn, zzz#8939"
   },
-
   "CONTROLS": {
     "Effects": "效果控制元件",
     "SpecialFX": "特殊效果",
@@ -13,7 +12,6 @@
     "SaveMacro": "將天氣和濾鏡儲存為巨集",
     "ClearFX": "清空天氣與濾鏡"
   },
-
   "FXMASTER": {
     "Common": {
       "ParticleEffect": "粒子效果",
@@ -42,7 +40,6 @@
       "Music": "音樂",
       "Splash": "飛濺"
     },
-
     "Params": {
       "Saturation": "飽和度",
       "Gamma": "伽馬",
@@ -93,9 +90,9 @@
       "ShadowDistance": "陰影距離",
       "ShadowBlur": "陰影模糊",
       "ShadowOpacity": "陰影不透明度",
-      "BelowTokens": "顯示於代幣下方"
+      "BelowTokens": "顯示於代幣下方",
+      "SoundFxEnabled": "Sound FX"
     },
-
     "Particles": {
       "Groups": {
         "Other": "其他",
@@ -157,7 +154,6 @@
         "TypeNotFound": "找不到對應類型的粒子效果：{type}"
       }
     },
-
     "Filters": {
       "Effects": {
         "Bloom": "高光",
@@ -174,7 +170,6 @@
         "TypeNotFound": "找不到對應類型的濾鏡效果：{type}"
       }
     },
-
     "Regions": {
       "BehaviorNames": {
         "ParticleEffectRegionBehaviorName": "FXMaster：粒子效果",
@@ -191,7 +186,6 @@
         "AlwaysVisibleForGM": "對 GM 總是可見"
       }
     },
-
     "AnimationEffect": {
       "AllAnimations": "全部動畫",
       "Copied": "已複製：{value}",
@@ -229,7 +223,6 @@
       "RefreshDbEmpty": "FXMaster | 資料庫中沒有動畫效果。FXMaster 會從你的自訂資料夾或 JB2A、Boss Loot 等供應者載入。新增後請到「模組設定 → FXMaster → 更新動畫資料庫」。",
       "ScanCompleteEmpty": "FXMaster | 掃描完成——未找到動畫效果。請新增後再重新更新。"
     },
-
     "Migration": {
       "WorldStart": "正在為 FXMaster 執行世界遷移。請耐心等待，不要關閉你的遊戲或伺服器。",
       "WorldCompletedWithErrors": "FXMaster 世界遷移出現錯誤。詳情請見開發者主控台（F12）。為避免場景崩潰，已啟用「對所有人禁用效果」。僅在確認安全時再啟用；建議先移除受影響場景的天氣與濾鏡效果。",
@@ -237,6 +230,36 @@
       "ClientStart": "為 FXMaster 執行客戶端遷移。請耐心等待，不要關閉遊戲。",
       "ClientCompletedWithErrors": "FXMaster 客戶端遷移完成但出現錯誤。詳情請見開發者主控台（F12）。",
       "ClientCompletedSuccessfully": "FXMaster 客戶端遷移成功。"
+    },
+    "SoundFX": {
+      "ControlTitle": "Sound FX",
+      "ManagerTitle": "Sound FX Manager",
+      "AddRule": "Add Sound Rule",
+      "DeleteRule": "Delete Rule",
+      "AddSound": "Add Sound",
+      "DeleteSound": "Delete Sound",
+      "Effects": "Effects",
+      "Mode": "Mode",
+      "ModeParallel": "Parallel",
+      "ModeSequential": "Sequential",
+      "File": "Sound File",
+      "Browse": "Browse",
+      "Level": "Level",
+      "DragPriority": "Drag to reprioritize",
+      "NoRules": "No Sound FX rules configured.",
+      "NoSounds": "No sounds in this rule.",
+      "V13Only": "Sound FX requires Foundry VTT V13+.",
+      "KindParticle": "Particle",
+      "KindFilter": "Filter",
+      "RuleConfigTitle": "Sound Rule",
+      "EditRule": "Edit Rule",
+      "Save": "Save",
+      "Cancel": "Cancel",
+      "Sounds": "Sounds",
+      "FadeTime": "Fade Time",
+      "FadeTimeHint": "Fade in/out time in milliseconds.",
+      "EffectsHint": "Select one effect for a single-effect sound rule, or select multiple effects to create a combo rule with higher priority.",
+      "NoEffectsSelected": "No effects selected."
     }
   }
 }

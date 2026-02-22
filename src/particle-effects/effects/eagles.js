@@ -29,6 +29,7 @@ export class EaglesParticleEffect extends FXMasterParticleEffect {
     const p = super.parameters;
     return {
       belowTokens: p.belowTokens,
+      soundFxEnabled: p.soundFxEnabled,
       tint: p.tint,
       directionalMovement: {
         label: "FXMASTER.Params.DirectionalMovement",

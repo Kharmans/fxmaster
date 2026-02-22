@@ -1,5 +1,7 @@
 import { FXMasterBaseFormV2 } from "../../base-form.js";
 import { packageId } from "../../constants.js";
+import { deletionUpdate } from "../../utils.js";
+import { ApiEffectEditor } from "./api-effect-editor.js";
 
 function safeJSONStringify(value) {
   try {
@@ -30,16 +32,17 @@ function isCoreKey(id) {
   return typeof id === "string" && id.startsWith("core_");
 }
 
-function isDeletionKey(id) {
-  return typeof id === "string" && id.startsWith("-=");
+function isLegacyOperatorKey(id) {
+  return typeof id === "string" && (id.startsWith("-=") || id.startsWith("=="));
 }
 
 /**
  * ApiEffectsManagement
  * --------------------
  * Lists scene-wide particle/filter effects that were added via the API (i.e. not
- * created by the built-in managers). Provides quick removal per effect and an
- * expandable view of the stored API parameters.
+ * created by the built-in managers). Provides quick removal per effect, an
+ * expandable view of the stored API parameters, and an editor for a single
+ * instance.
  */
 export class ApiEffectsManagement extends FXMasterBaseFormV2 {
   constructor(options = {}) {
@@ -56,6 +59,7 @@ export class ApiEffectsManagement extends FXMasterBaseFormV2 {
     actions: {
       toggleApiCollapse: ApiEffectsManagement.toggleApiCollapse,
       deleteApiEffect: ApiEffectsManagement.deleteApiEffect,
+      editApiEffect: ApiEffectsManagement.editApiEffect,
     },
     window: {
       title: "FXMASTER.Common.ApiEffectsManagementTitle",
@@ -83,11 +87,36 @@ export class ApiEffectsManagement extends FXMasterBaseFormV2 {
     /** @type {Array<object>} */
     const apiEffects = [];
 
+    const getDisplayName = (kind, typeFallback) => {
+      try {
+        const db = kind === "particle" ? CONFIG?.fxmaster?.particleEffects : CONFIG?.fxmaster?.filterEffects;
+        const def = typeFallback && db ? db[typeFallback] : null;
+        if (!def?.label) return typeFallback;
+        return game.i18n.localize(def.label);
+      } catch {
+        return typeFallback;
+      }
+    };
+
+    const canEditType = (kind, type) => {
+      try {
+        const db = kind === "particle" ? CONFIG?.fxmaster?.particleEffects : CONFIG?.fxmaster?.filterEffects;
+        return !!(type && db && type in db);
+      } catch {
+        return false;
+      }
+    };
+
     const addRow = ({ kind, id, info }) => {
       const uid = `${kind}:${id}`;
-      const name = String(info?.type ?? info?.name ?? "").trim() || "Unknown";
+      const type = String(info?.type ?? "").trim();
+      const nameFallback = String(info?.type ?? info?.name ?? "").trim() || "Unknown";
+
       const kindKey =
         kind === "particle" ? "FXMASTER.Common.ApiEffectsKindParticle" : "FXMASTER.Common.ApiEffectsKindFilter";
+
+      const canEdit = canEditType(kind, type);
+      const displayName = canEdit ? getDisplayName(kind, type) : nameFallback;
 
       const detailsObj = { uid, kind, id, ...info };
 
@@ -97,20 +126,24 @@ export class ApiEffectsManagement extends FXMasterBaseFormV2 {
         kindLabel: game.i18n.localize(kindKey),
         icon: kind === "particle" ? "fas fa-cloud-rain" : "fas fa-filter",
         id,
-        name,
+        name: displayName,
         details: safeJSONStringify(detailsObj),
         expanded: this._expandedUids?.has?.(uid) ?? false,
+        canEdit,
+        editTooltip: canEdit
+          ? game.i18n.localize("FXMASTER.Common.ApiEffectsEdit")
+          : game.i18n.localize("FXMASTER.Common.ApiEffectsEditUnavailable"),
       });
     };
 
     for (const [id, info] of Object.entries(sceneParticles ?? {})) {
-      if (isDeletionKey(id) || isCoreKey(id)) continue;
+      if (isLegacyOperatorKey(id) || isCoreKey(id)) continue;
       if (!info || typeof info !== "object") continue;
       addRow({ kind: "particle", id, info });
     }
 
     for (const [id, info] of Object.entries(sceneFilters ?? {})) {
-      if (isDeletionKey(id) || isCoreKey(id)) continue;
+      if (isLegacyOperatorKey(id) || isCoreKey(id)) continue;
       if (!info || typeof info !== "object") continue;
       addRow({ kind: "filter", id, info });
     }
@@ -150,6 +183,7 @@ export class ApiEffectsManagement extends FXMasterBaseFormV2 {
 
   static toggleApiCollapse(event, row) {
     if (event.target?.closest?.('[data-action="deleteApiEffect"]')) return;
+    if (event.target?.closest?.('[data-action="editApiEffect"]')) return;
 
     const uid = row?.dataset?.uid;
     if (!uid) return;
@@ -176,12 +210,27 @@ export class ApiEffectsManagement extends FXMasterBaseFormV2 {
     } catch {}
 
     try {
-      if (kind === "particle") await scene.setFlag(packageId, "effects", { [`-=${id}`]: null });
-      else if (kind === "filter") await scene.setFlag(packageId, "filters", { [`-=${id}`]: null });
+      if (kind === "particle") await scene.setFlag(packageId, "effects", deletionUpdate(id));
+      else if (kind === "filter") await scene.setFlag(packageId, "filters", deletionUpdate(id));
     } catch {}
 
     try {
       this.render(false);
+    } catch {}
+  }
+
+  static editApiEffect(event, button) {
+    event?.stopPropagation?.();
+
+    if (button?.disabled) return;
+
+    const kind = button?.dataset?.kind;
+    const id = button?.dataset?.id;
+
+    if (!kind || !id) return;
+
+    try {
+      ApiEffectEditor.open({ kind, id, scene: canvas?.scene ?? null });
     } catch {}
   }
 }

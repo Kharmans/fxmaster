@@ -6,6 +6,117 @@
 import { packageId } from "./constants.js";
 
 /**
+ * Add a "delete this key" operator to an update object in a way which is compatible
+ * with both legacy (V12/V13) and newer (V14+) Foundry.
+ *
+ * In V14+, Foundry deprecated legacy "-=key": null syntax in favor of explicit
+ * DataFieldOperator values, e.g. {key: foundry.data.operators.ForcedDeletion.create()}.
+ *
+ * @param {object} update     The update object to mutate.
+ * @param {string} key        The key to delete.
+ * @returns {object}          The same update object.
+ */
+export function addDeletionKey(update, key) {
+  const op = getForcedDeletionOperator();
+  if (op) update[key] = op;
+  else update[`-=${key}`] = null;
+  return update;
+}
+
+/**
+ * Add a "replace this key" operator to an update object in a way which is compatible
+ * with both legacy (V12/V13) and newer (V14+) Foundry.
+ *
+ * In V14+, Foundry deprecated legacy "==key": value syntax in favor of explicit
+ * DataFieldOperator values, e.g. {key: foundry.data.operators.ForcedReplacement.create(value)}.
+ *
+ * @param {object} update        The update object to mutate.
+ * @param {string} key           The key to replace.
+ * @param {*} replacement        The replacement value.
+ * @returns {object}             The same update object.
+ */
+export function addReplacementKey(update, key, replacement) {
+  const op = getForcedReplacementOperator(replacement);
+  if (op) update[key] = op;
+  else update[`==${key}`] = replacement;
+  return update;
+}
+
+/**
+ * Create an update object which replaces a specific key.
+ * @param {string} key
+ * @param {*} replacement
+ * @returns {object}
+ */
+export function replacementUpdate(key, replacement) {
+  return addReplacementKey({}, key, replacement);
+}
+
+/**
+ * Check whether a key name is one of Foundry's legacy "special keys".
+ * @param {string} key
+ * @returns {boolean}
+ */
+function isLegacyOperatorKey(key) {
+  return typeof key === "string" && (key.startsWith("-=") || key.startsWith("=="));
+}
+
+/**
+ * Get a V14+ ForcedDeletion operator instance.
+ * @returns {foundry.data.operators.ForcedDeletion|null}
+ */
+function getForcedDeletionOperator() {
+  const ForcedDeletion = foundry?.data?.operators?.ForcedDeletion;
+  if (!ForcedDeletion) return null;
+
+  const del = globalThis?._del;
+  if (del) return del;
+
+  if (typeof ForcedDeletion.create === "function") return ForcedDeletion.create();
+  try {
+    return new ForcedDeletion();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get a V14+ ForcedReplacement operator instance for a replacement value.
+ * @param {*} replacement
+ * @returns {foundry.data.operators.ForcedReplacement|null}
+ */
+function getForcedReplacementOperator(replacement) {
+  const ForcedReplacement = foundry?.data?.operators?.ForcedReplacement;
+  if (!ForcedReplacement) return null;
+
+  const rep = globalThis?._replace;
+  if (typeof rep === "function") {
+    try {
+      return rep(replacement);
+    } catch {}
+  }
+
+  if (typeof ForcedReplacement.create === "function") {
+    try {
+      return ForcedReplacement.create(replacement);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Create an update object which deletes a specific key.
+ * @param {string} key
+ * @returns {object}
+ */
+export function deletionUpdate(key) {
+  return addDeletionKey({}, key);
+}
+
+/**
  * Reset a namespaced flag on a document, removing stale keys.
  * @param {foundry.abstract.Document} document
  * @param {string} key
@@ -16,10 +127,11 @@ export async function resetFlag(document, key, value) {
   if (typeof value === "object" && !Array.isArray(value) && value !== null) {
     const oldFlags = document.getFlag(packageId, key);
     const keys = oldFlags ? Object.keys(oldFlags) : [];
-    keys.forEach((k) => {
-      if (value[k]) return;
-      value[`-=${k}`] = null;
-    });
+    for (const k of keys) {
+      if (isLegacyOperatorKey(k)) continue;
+      if (Object.prototype.hasOwnProperty.call(value, k)) continue;
+      addDeletionKey(value, k);
+    }
   }
   return document.setFlag(packageId, key, value);
 }
@@ -240,6 +352,19 @@ function rotatePoint(px, py, cx, cy, angleRad) {
  */
 function centroid(points) {
   if (!points?.length) return { x: 0, y: 0 };
+
+  if (typeof points[0] === "number") {
+    const n = (points.length / 2) | 0;
+    if (n <= 0) return { x: 0, y: 0 };
+    let sx = 0,
+      sy = 0;
+    for (let i = 0; i < n; i++) {
+      sx += points[2 * i];
+      sy += points[2 * i + 1];
+    }
+    return { x: sx / n, y: sy / n };
+  }
+
   let sx = 0,
     sy = 0;
   for (const p of points) {
@@ -308,6 +433,23 @@ function ellipseToPolygon(cx, cy, rx, ry, rotRad, segments = 48) {
  * @param {{ ellipseSegments?: number }} [opts]
  */
 function traceRegionShapePIXI(g, s, opts = {}) {
+  if (!g || !s) return;
+
+  if (typeof s.drawShape === "function") {
+    try {
+      s.drawShape(g);
+      return;
+    } catch {}
+  }
+
+  if (Array.isArray(s?.polygons) && s.polygons.length) {
+    for (const poly of s.polygons) {
+      if (!poly) continue;
+      g.drawShape(poly);
+    }
+    return;
+  }
+
   const type = s?.type;
   const rotRad = ((s?.rotation || 0) * Math.PI) / 180;
   const ellipseSegments = Number.isFinite(opts.ellipseSegments) ? Math.max(8, opts.ellipseSegments | 0) : 48;
@@ -320,6 +462,19 @@ function traceRegionShapePIXI(g, s, opts = {}) {
       return;
     }
     const c = centroid(pts);
+    /**
+     * Region polygons may represent points as either an array of {x, y} objects or as a flat
+     * number array [x0, y0, x1, y1, ...].
+     */
+    if (typeof pts[0] === "number") {
+      const rotFlat = [];
+      for (let i = 0; i + 1 < pts.length; i += 2) {
+        const rp = rotatePoint(pts[i], pts[i + 1], c.x, c.y, rotRad);
+        rotFlat.push(rp.x, rp.y);
+      }
+      g.drawShape(new PIXI.Polygon(rotFlat));
+      return;
+    }
     const rotPts = pts.map((p) => rotatePoint(p.x, p.y, c.x, c.y, rotRad));
     g.drawShape(new PIXI.Polygon(rotPts));
     return;
@@ -364,6 +519,20 @@ function traceRegionShapePIXI(g, s, opts = {}) {
  * @param {object} s
  */
 export function traceRegionShapePath2D(ctx, s) {
+  if (!ctx || !s) return;
+
+  const polys = s?.polygons;
+  if (Array.isArray(polys) && polys.length) {
+    for (const poly of polys) {
+      const pts = poly?.points ?? poly;
+      if (!pts || pts.length < 6) continue;
+      ctx.moveTo(pts[0], pts[1]);
+      for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+      ctx.closePath();
+    }
+    return;
+  }
+
   const type = s?.type;
   const rotRad = ((s?.rotation || 0) * Math.PI) / 180;
 
@@ -398,8 +567,21 @@ export function traceRegionShapePath2D(ctx, s) {
       return;
     }
     ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    /**
+     * Region polygons may represent points as either an array of {x, y} objects or as a flat
+     * number array [x0, y0, x1, y1, ...].
+     */
+    if (typeof pts[0] === "number") {
+      if (pts.length < 4) {
+        ctx.restore();
+        return;
+      }
+      ctx.moveTo(pts[0], pts[1]);
+      for (let i = 2; i + 1 < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+    } else {
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    }
     ctx.closePath();
     ctx.restore();
     return;
@@ -435,9 +617,18 @@ export function traceRegionShapePath2D(ctx, s) {
   }
 
   if (Array.isArray(s?.points) && s.points.length) {
+    const pts = s.points;
     ctx.beginPath();
-    ctx.moveTo(s.points[0].x, s.points[0].y);
-    for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x, s.points[i].y);
+    /** Some shapes provide points as a flat number array [x0, y0, ...]. */
+    if (typeof pts[0] === "number") {
+      if (pts.length >= 4) {
+        ctx.moveTo(pts[0], pts[1]);
+        for (let i = 2; i + 1 < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+      }
+    } else {
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    }
     ctx.closePath();
     ctx.restore();
   }
@@ -523,7 +714,25 @@ export function regionWorldBounds(placeable) {
     }
   };
   for (const s of shapes) {
-    if (s.hole) continue;
+    if (!s || s.hole) continue;
+
+    const b = s?.bounds;
+    if (b && Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.width) && Number.isFinite(b.height)) {
+      include(b.x, b.y);
+      include(b.x + b.width, b.y + b.height);
+      continue;
+    }
+
+    const polys = s?.polygons;
+    if (Array.isArray(polys) && polys.length) {
+      for (const poly of polys) {
+        const pts = poly?.points ?? poly;
+        if (!pts || pts.length < 2) continue;
+        for (let i = 0; i + 1 < pts.length; i += 2) include(pts[i], pts[i + 1]);
+      }
+      continue;
+    }
+
     if (s.type === "rectangle") {
       include(s.x, s.y);
       include(s.x + s.width, s.y + s.height);
@@ -565,7 +774,33 @@ export function regionWorldBoundsAligned(placeable) {
   };
 
   for (const s of placeable?.document?.shapes ?? []) {
-    if (s.hole) continue;
+    if (!s || s.hole) continue;
+
+    const b = s?.bounds;
+    if (b && Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.width) && Number.isFinite(b.height)) {
+      const a = toCss(b.x, b.y);
+      const b2 = toCss(b.x + b.width, b.y);
+      const c = toCss(b.x + b.width, b.y + b.height);
+      const d = toCss(b.x, b.y + b.height);
+      includeCss(a.x, a.y);
+      includeCss(b2.x, b2.y);
+      includeCss(c.x, c.y);
+      includeCss(d.x, d.y);
+      continue;
+    }
+
+    const polys = s?.polygons;
+    if (Array.isArray(polys) && polys.length) {
+      for (const poly of polys) {
+        const pts = poly?.points ?? poly;
+        if (!pts || pts.length < 2) continue;
+        for (let i = 0; i + 1 < pts.length; i += 2) {
+          const q = toCss(pts[i], pts[i + 1]);
+          includeCss(q.x, q.y);
+        }
+      }
+      continue;
+    }
     if (s.type === "rectangle") {
       const a = toCss(s.x, s.y),
         b = toCss(s.x + s.width, s.y),
@@ -642,27 +877,209 @@ export function rectFromShapes(shapes) {
  * @param {PlaceableObject} placeable
  * @returns {Float32Array}
  */
-export function buildPolygonEdges(placeable) {
-  const out = [];
-  for (const s of placeable?.document?.shapes ?? []) {
-    if (s.type !== "polygon") continue;
-    const pts = s.points || [];
-    if (!pts.length) continue;
+export function buildPolygonEdges(placeable, { maxEdges = Infinity } = {}) {
+  const polys = [];
+
+  const toFlat = (pts) => {
+    if (!pts) return null;
+
+    if (typeof pts[0] === "number") return Array.from(pts);
     if (typeof pts[0] === "object") {
-      const n = pts.length;
-      for (let i = 0; i < n; i++) {
-        const j = (i + 1) % n;
-        out.push(pts[i].x, pts[i].y, pts[j].x, pts[j].y);
+      const out = [];
+      for (const p of pts) {
+        if (!p) continue;
+        out.push(p.x, p.y);
       }
-    } else {
-      const n = (pts.length / 2) | 0;
-      for (let i = 0; i < n; i++) {
-        const j = (i + 1) % n;
-        out.push(pts[2 * i], pts[2 * i + 1], pts[2 * j], pts[2 * j + 1]);
+      return out;
+    }
+    return null;
+  };
+
+  const normalizeFlat = (flat) => {
+    if (!Array.isArray(flat) || flat.length < 6) return null;
+    const n = (flat.length / 2) | 0;
+    if (n < 3) return null;
+
+    let m = n;
+
+    const lx = flat[2 * (n - 1)];
+    const ly = flat[2 * (n - 1) + 1];
+    if (lx === flat[0] && ly === flat[1]) m = n - 1;
+    if (m < 3) return null;
+
+    return flat.slice(0, m * 2);
+  };
+
+  const addPoly = (pts) => {
+    const flat = normalizeFlat(toFlat(pts));
+    if (!flat) return;
+    const m = (flat.length / 2) | 0;
+    polys.push({ flat, m });
+  };
+
+  const isEmptyShape = (s) => {
+    try {
+      if (typeof s?.isEmpty === "function") return !!s.isEmpty();
+      return !!s?.isEmpty;
+    } catch {
+      return false;
+    }
+  };
+
+  for (const s of placeable?.document?.shapes ?? []) {
+    if (!s) continue;
+    if (isEmptyShape(s)) continue;
+
+    if (Array.isArray(s?.polygons) && s.polygons.length) {
+      for (const poly of s.polygons) {
+        if (!poly) continue;
+        addPoly(poly?.points ?? poly);
+      }
+      continue;
+    }
+
+    const type = s?.type;
+    const rotRad = ((s?.rotation || 0) * Math.PI) / 180;
+
+    if (type === "polygon") {
+      const pts = s.points ?? [];
+      if (!pts?.length) continue;
+      if (!rotRad) {
+        addPoly(pts);
+        continue;
+      }
+
+      if (typeof pts[0] === "object") {
+        const c = centroid(pts);
+        const rotPts = pts.map((p) => rotatePoint(p.x, p.y, c.x, c.y, rotRad));
+        addPoly(rotPts);
+      } else {
+        const c = centroid(pts);
+        const rotPts = [];
+        const n = (pts.length / 2) | 0;
+        for (let i = 0; i < n; i++) {
+          const rp = rotatePoint(pts[2 * i], pts[2 * i + 1], c.x, c.y, rotRad);
+          rotPts.push(rp);
+        }
+        addPoly(rotPts);
+      }
+      continue;
+    }
+
+    if (type === "rectangle") {
+      const x = s.x ?? 0,
+        y = s.y ?? 0,
+        w = s.width ?? 0,
+        h = s.height ?? 0;
+      addPoly(rectToPolygon(x, y, w, h, rotRad));
+      continue;
+    }
+
+    if (type === "ellipse" || type === "circle") {
+      const cx = s.x ?? 0,
+        cy = s.y ?? 0;
+      const rx = Math.max(0, type === "circle" ? s.radius ?? 0 : s.radiusX ?? 0);
+      const ry = Math.max(0, type === "circle" ? s.radius ?? 0 : s.radiusY ?? 0);
+      addPoly(ellipseToPolygon(cx, cy, rx, ry, rotRad, 48));
+      continue;
+    }
+
+    if (Array.isArray(s?.points) && s.points.length) addPoly(s.points);
+  }
+
+  if (!polys.length) return new Float32Array();
+
+  const totalEdges = polys.reduce((a, p) => a + p.m, 0) || 0;
+  if (totalEdges <= 0) return new Float32Array();
+
+  let cap = Number(maxEdges);
+  if (!Number.isFinite(cap) || cap <= 0) cap = totalEdges;
+  cap = Math.min(totalEdges, cap);
+
+  const polyCount = polys.length;
+  let minPer = 3;
+  if (polyCount * minPer > cap) minPer = 2;
+  if (polyCount * minPer > cap) minPer = 1;
+
+  const alloc = polys.map((p) => {
+    const share = (cap * p.m) / totalEdges;
+    let a = Math.round(share);
+    a = Math.max(minPer, a);
+    a = Math.min(p.m, a);
+    return a;
+  });
+
+  let sumAlloc = alloc.reduce((a, b) => a + b, 0);
+
+  while (sumAlloc > cap) {
+    let idx = -1;
+    let best = -1;
+    for (let i = 0; i < alloc.length; i++) {
+      const slack = alloc[i] - minPer;
+      if (slack > best) {
+        best = slack;
+        idx = i;
       }
     }
+    if (idx < 0 || alloc[idx] <= minPer) break;
+    alloc[idx] -= 1;
+    sumAlloc -= 1;
   }
-  return new Float32Array(out);
+
+  while (sumAlloc < cap) {
+    let idx = -1;
+    let bestScore = -1;
+    for (let i = 0; i < alloc.length; i++) {
+      if (alloc[i] >= polys[i].m) continue;
+
+      const score = polys[i].m / Math.max(1, alloc[i]);
+      if (score > bestScore) {
+        bestScore = score;
+        idx = i;
+      }
+    }
+    if (idx < 0) break;
+    alloc[idx] += 1;
+    sumAlloc += 1;
+  }
+
+  const edges = [];
+
+  const emitEdges = (flat, m, want) => {
+    if (m < 2 || want < 2) return;
+
+    let idxs;
+    if (want >= m) {
+      idxs = Array.from({ length: m }, (_, i) => i);
+    } else {
+      idxs = [];
+      const step = m / want;
+      let last = -1;
+      for (let i = 0; i < want; i++) {
+        let k = Math.floor(i * step);
+        if (k <= last) k = last + 1;
+        if (k >= m) k = m - 1;
+        idxs.push(k);
+        last = k;
+      }
+
+      if (idxs.length >= 2 && idxs[0] == idxs[idxs.length - 1]) idxs.pop();
+      if (idxs.length < 2) return;
+    }
+
+    const L = idxs.length;
+    for (let i = 0; i < L; i++) {
+      const a = idxs[i];
+      const b = idxs[(i + 1) % L];
+      edges.push(flat[2 * a], flat[2 * a + 1], flat[2 * b], flat[2 * b + 1]);
+    }
+  };
+
+  for (let i = 0; i < polys.length; i++) {
+    emitEdges(polys[i].flat, polys[i].m, alloc[i]);
+  }
+
+  return new Float32Array(edges);
 }
 
 /**
@@ -673,9 +1090,12 @@ export function buildPolygonEdges(placeable) {
 export function hasMultipleNonHoleShapes(placeable) {
   let n = 0;
   for (const s of placeable?.document?.shapes ?? []) {
-    if (s?.hole) continue;
-    if (s.type === "rectangle" || s.type === "ellipse" || s.type === "circle" || s.type === "polygon")
-      if (++n > 1) return true;
+    if (!s || s.hole) continue;
+
+    const empty = typeof s.isEmpty === "function" ? s.isEmpty() : !!s.isEmpty;
+    if (empty) continue;
+    if (!s.type) continue;
+    if (++n > 1) return true;
   }
   return false;
 }
@@ -694,6 +1114,163 @@ export function edgeFadeWorldWidth(placeable, pctLike) {
   const frac = Math.max(0, Number(pctLike) || 0);
   const f = frac > 1 ? Math.min(1, frac / 100) : frac;
   return Math.max(1e-6, Math.min(w, h) * f);
+}
+
+/**
+ * Estimate the maximum interior distance ("inradius") for a single region shape.
+ *
+ * This value is used to scale Edge Fade % for polygon-based shapes where there's no cheap analytic inradius (e.g. line, cone, ring, emanation, token, polygon).
+ *
+ * The estimate is intentionally conservative, because an over-estimate can cause Edge Fade % to completely fade out small shapes.
+ *
+ * @param {object} shape
+ * @returns {number}
+ */
+export function estimateShapeInradiusWorld(shape) {
+  if (!shape) return 0;
+
+  const raw = shape;
+  const data = typeof raw?.toObject === "function" ? raw.toObject() : raw;
+  const type = raw?.type ?? data?.type;
+
+  const num = (v, d = NaN) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : d;
+  };
+  const pos = (v) => {
+    const n = num(v);
+    return Number.isFinite(n) ? Math.max(0, n) : NaN;
+  };
+
+  const b = raw?.bounds ?? data?.bounds;
+  const bw = Number.isFinite(b?.width) ? Math.max(0, b.width) : NaN;
+  const bh = Number.isFinite(b?.height) ? Math.max(0, b.height) : NaN;
+  const minSide = Number.isFinite(bw) && Number.isFinite(bh) ? Math.min(bw, bh) : NaN;
+
+  if (type === "circle") {
+    const r = pos(raw?.radius ?? data?.radius);
+    if (Number.isFinite(r)) return r;
+    if (Number.isFinite(minSide)) return 0.5 * minSide;
+  }
+  if (type === "ellipse") {
+    const rx = pos(raw?.radiusX ?? data?.radiusX);
+    const ry = pos(raw?.radiusY ?? data?.radiusY);
+    if (Number.isFinite(rx) && Number.isFinite(ry)) return Math.min(rx, ry);
+    if (Number.isFinite(minSide)) return 0.25 * minSide;
+  }
+  if (type === "rectangle" || type === "token") {
+    const w = pos(raw?.width ?? data?.width);
+    const h = pos(raw?.height ?? data?.height);
+    if (Number.isFinite(w) && Number.isFinite(h)) return 0.5 * Math.min(w, h);
+    if (Number.isFinite(minSide)) return 0.5 * minSide;
+  }
+
+  if (type === "ring") {
+    const thick = pos(raw?.width ?? data?.width ?? raw?.thickness ?? data?.thickness);
+    if (Number.isFinite(thick) && thick > 0) return 0.5 * thick;
+
+    const outer = pos(raw?.outerRadius ?? data?.outerRadius ?? raw?.radius ?? data?.radius);
+    const inner = pos(raw?.innerRadius ?? data?.innerRadius);
+    if (Number.isFinite(outer) && Number.isFinite(inner)) return Math.max(0, 0.5 * (outer - inner));
+
+    const R = Number.isFinite(outer) ? outer : Number.isFinite(minSide) ? 0.5 * minSide : NaN;
+    const A = pos(raw?.area ?? data?.area);
+    if (Number.isFinite(R) && Number.isFinite(A) && A > 0) {
+      const ri2 = Math.max(0, R * R - A / Math.PI);
+      const ri = Math.sqrt(ri2);
+      return Math.max(0, 0.5 * (R - ri));
+    }
+
+    if (Number.isFinite(minSide)) return 0.125 * minSide;
+  }
+
+  if (type === "line") {
+    const A = pos(raw?.area ?? data?.area);
+
+    const thick = pos(raw?.width ?? data?.width ?? raw?.thickness ?? data?.thickness);
+    if (Number.isFinite(thick) && thick > 0) return 0.5 * thick;
+
+    const L = pos(raw?.length ?? data?.length ?? raw?.distance ?? data?.distance);
+    const major = Number.isFinite(bw) && Number.isFinite(bh) ? Math.max(bw, bh) : NaN;
+    const len = Number.isFinite(L) && L > 0 ? L : major;
+    if (Number.isFinite(A) && A > 0 && Number.isFinite(len) && len > 0) {
+      const approxT = A / len;
+      if (Number.isFinite(approxT) && approxT > 0) return 0.5 * approxT;
+    }
+
+    if (Number.isFinite(minSide)) return 0.5 * minSide;
+  }
+
+  if (type === "cone") {
+    const R = pos(raw?.radius ?? data?.radius ?? raw?.distance ?? data?.distance);
+    const angleDeg = pos(raw?.angle ?? data?.angle);
+    if (Number.isFinite(R) && Number.isFinite(angleDeg) && angleDeg > 0) {
+      const theta = (angleDeg * Math.PI) / 180;
+      const s = Math.sin(theta / 2);
+      const rin = (R * s) / (1 + s);
+      if (Number.isFinite(rin) && rin > 0) return rin;
+    }
+    if (Number.isFinite(minSide)) return 0.25 * minSide;
+  }
+
+  if (type === "emanation") {
+    const base = raw?.shape ?? raw?.base ?? raw?.sourceShape ?? raw?.source ?? data?.shape ?? data?.base;
+    const dist = pos(raw?.distance ?? data?.distance ?? raw?.padding ?? data?.padding ?? raw?.offset ?? data?.offset);
+    if (base && Number.isFinite(dist)) {
+      const r0 = estimateShapeInradiusWorld(base);
+      if (Number.isFinite(r0) && r0 > 0) return r0 + dist;
+    }
+    if (Number.isFinite(minSide)) return 0.25 * minSide;
+  }
+
+  if (Number.isFinite(minSide)) return 0.25 * minSide;
+
+  const w = pos(raw?.width ?? data?.width);
+  const h = pos(raw?.height ?? data?.height);
+  if (Number.isFinite(w) && Number.isFinite(h)) return 0.25 * Math.min(w, h);
+
+  return 0;
+}
+
+/**
+ * Estimate the region inradius used to scale Edge Fade % for polygon-based fades.
+ *
+ * For Regions composed of multiple shapes, Edge Fade % should not completely fade
+ * out smaller sub-shapes. Use the minimum per-shape inradius as the scaling reference.
+ *
+ * @param {PlaceableObject} placeable
+ * @returns {number}
+ */
+export function estimateRegionInradius(placeable) {
+  const shapes = placeable?.document?.shapes ?? [];
+
+  let minR = Infinity;
+  let maxR = 0;
+  for (const s of shapes) {
+    if (!s || s.hole) continue;
+    const empty = typeof s.isEmpty === "function" ? s.isEmpty() : !!s.isEmpty;
+    if (empty) continue;
+    const r = estimateShapeInradiusWorld(s);
+    if (Number.isFinite(r) && r > 0) {
+      minR = Math.min(minR, r);
+      maxR = Math.max(maxR, r);
+    }
+  }
+
+  if (minR !== Infinity) {
+    const CAP_RATIO = 3.0;
+    const ref = Math.min(maxR || minR, minR * CAP_RATIO);
+    return Math.max(1e-6, ref);
+  }
+
+  const b = regionWorldBounds(placeable) ?? regionWorldBoundsAligned(placeable);
+  if (b && [b.minX, b.minY, b.maxX, b.maxY].every(Number.isFinite)) {
+    const w = Math.max(1e-6, b.maxX - b.minX);
+    const h = Math.max(1e-6, b.maxY - b.minY);
+    return Math.max(1e-6, 0.25 * Math.min(w, h));
+  }
+
+  return 1e-6;
 }
 
 /**
@@ -1056,11 +1633,22 @@ export function repaintTokensMaskInto(outRT) {
 
 /**
  * Return a non-null texture suitable for sprite masks.
+ * Falls back to {@link PIXI.Texture.WHITE} when the input is null, destroyed, or missing
+ * required metadata (for example, a missing {@code orig} after texture destruction).
+ *
  * @param {PIXI.Texture|PIXI.RenderTexture|null} tex
  * @returns {PIXI.Texture|PIXI.RenderTexture}
  */
 export function safeMaskTexture(tex) {
-  return tex ?? PIXI.Texture.WHITE;
+  try {
+    if (!tex) return PIXI.Texture.WHITE;
+    if (tex.destroyed) return PIXI.Texture.WHITE;
+    if (tex.baseTexture?.destroyed) return PIXI.Texture.WHITE;
+    if (!tex.orig) return PIXI.Texture.WHITE;
+    return tex;
+  } catch {
+    return PIXI.Texture.WHITE;
+  }
 }
 
 /**
@@ -1218,8 +1806,8 @@ export function computeRegionGatePass(placeable, { behaviorType }) {
  * Usage:
  * const oncePerFrame = coalesceNextFrame(fn, { key: "unique-key" });
  * oncePerFrame(arg1, arg2);
- * oncePerFrame.cancel();  // optional
- * oncePerFrame.flush();   // optional - run immediately if pending
+ * oncePerFrame.cancel();
+ * oncePerFrame.flush();
  *
  * @template {(...args:any[]) => any} F
  * @param {F} fn - The function to call once per frame.
@@ -1354,7 +1942,7 @@ export function buildSceneAllowMaskRT({ regions = [], reuseRT = null } = {}) {
     } catch {}
   }
 
-  // Paint Background Black (Everything suppressed by default)
+  /** Paint background black (suppressed by default). */
   {
     const { bg } = _getSceneAllowMaskGfx();
     bg.clear();
@@ -1362,7 +1950,7 @@ export function buildSceneAllowMaskRT({ regions = [], reuseRT = null } = {}) {
     r.render(bg, { renderTexture: rt, clear: true });
   }
 
-  // Paint Scene Area White (Allow effects only inside scene dimensions)
+  /** Paint scene area white (allowed inside scene dimensions). */
   const M = snappedStageMatrix();
   const d = canvas.dimensions;
   if (d) {
@@ -1386,10 +1974,16 @@ export function buildSceneAllowMaskRT({ regions = [], reuseRT = null } = {}) {
     const maxX = Math.max(p0.x, p1.x);
     const maxY = Math.max(p0.y, p1.y);
 
-    const left = Math.ceil(minX - 0.5);
-    const top = Math.ceil(minY - 0.5);
-    const right = Math.ceil(maxX - 0.5);
-    const bottom = Math.ceil(maxY - 0.5);
+    /**
+     * Seam prevention: avoid rounding to the nearest pixel.
+     * Rounding can shrink the transformed scene rect by 1px depending on fractional camera
+     * alignment, producing a 1px transparent seam that appears to jump between edges at
+     * different zoom levels. Bounds are expanded to cover the transformed scene rect.
+     */
+    const left = Math.floor(minX);
+    const top = Math.floor(minY);
+    const right = Math.ceil(maxX);
+    const bottom = Math.ceil(maxY);
 
     const x = Math.max(0, Math.min(cssW, left));
     const y = Math.max(0, Math.min(cssH, top));
@@ -1404,7 +1998,7 @@ export function buildSceneAllowMaskRT({ regions = [], reuseRT = null } = {}) {
     }
   }
 
-  // Subtract suppression-region solids (ERASE), add back holes (NORMAL)
+  /** Subtract suppression-region solids (ERASE) and add back holes (NORMAL). */
   if (Array.isArray(regions) && regions.length) {
     const { solids: solidsGfx, holes: holesGfx } = _getSceneAllowMaskGfx();
     solidsGfx.clear();
@@ -1632,7 +2226,7 @@ export function updateSceneControlHighlights() {
   const effects = scene.getFlag(packageId, "effects") ?? {};
   const filters = scene.getFlag(packageId, "filters") ?? {};
 
-  const isDeletionKey = (id) => typeof id === "string" && id.startsWith("-=");
+  const isDeletionKey = isLegacyOperatorKey;
   const isCoreKey = (id) => typeof id === "string" && id.startsWith("core_");
 
   const hasCoreParticles = Object.entries(effects).some(([id, v]) => !isDeletionKey(id) && isCoreKey(id) && v);

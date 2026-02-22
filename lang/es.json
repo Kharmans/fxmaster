@@ -3,7 +3,6 @@
     "LANGUAGE": "Español",
     "MAINTAINERS": "@Viriato139ac#0342"
   },
-
   "CONTROLS": {
     "Effects": "Controles de efectos",
     "SpecialFX": "Efectos especiales",
@@ -14,7 +13,6 @@
     "ClearFX": "Borrar efectos y filtros de la escena",
     "ToolsActive": "Herramientas activas"
   },
-
   "FXMASTER": {
     "Common": {
       "ParticleEffect": "Efecto de partículas",
@@ -46,7 +44,6 @@
       "Music": "Música",
       "Splash": "Salpicadura"
     },
-
     "Params": {
       "Saturation": "Saturación",
       "Gamma": "Gamma",
@@ -97,9 +94,9 @@
       "ShadowDistance": "Distancia de la sombra",
       "ShadowBlur": "Difuminado de la sombra",
       "ShadowOpacity": "Opacidad de la sombra",
-      "BelowTokens": "Debajo de las fichas"
+      "BelowTokens": "Debajo de las fichas",
+      "SoundFxEnabled": "Sound FX"
     },
-
     "Particles": {
       "Groups": {
         "Other": "Otro",
@@ -161,7 +158,6 @@
         "TypeNotFound": "No se encontró ningún efecto de partículas para el tipo: {type}"
       }
     },
-
     "Filters": {
       "Effects": {
         "Bloom": "Florecimiento",
@@ -178,7 +174,6 @@
         "TypeNotFound": "No se encontró ningún efecto de filtro para el tipo: {type}"
       }
     },
-
     "Regions": {
       "BehaviorNames": {
         "ParticleEffectRegionBehaviorName": "FXMaster: Efectos de partículas",
@@ -195,7 +190,6 @@
         "AlwaysVisibleForGM": "Siempre visible para el DJ"
       }
     },
-
     "AnimationEffect": {
       "AllAnimations": "Todas las animaciones",
       "Copied": "Copiado: {value}",
@@ -232,6 +226,36 @@
       "RefreshDbError": "FXMaster | No se encontraron efectos de animación en la base de datos de FXMaster. Espere a que termine el escaneo actual o vaya a 'Configuración del módulo -> FXMaster -> Actualizar base de datos de animaciones'.",
       "RefreshDbEmpty": "FXMaster | No hay efectos de animación en la base de datos. FXMaster los carga desde tu carpeta de animaciones personalizada o proveedores como JB2A, Boss Loot, etc. Si has añadido animaciones, actualiza la base de datos desde 'Configuración del módulo -> FXMaster -> Actualizar base de datos de animaciones'.",
       "ScanCompleteEmpty": "FXMaster | Escaneo completado – No se encontraron efectos de animación. Añade animaciones y vuelve a actualizar."
+    },
+    "SoundFX": {
+      "ControlTitle": "Sound FX",
+      "ManagerTitle": "Sound FX Manager",
+      "AddRule": "Add Sound Rule",
+      "DeleteRule": "Delete Rule",
+      "AddSound": "Add Sound",
+      "DeleteSound": "Delete Sound",
+      "Effects": "Effects",
+      "Mode": "Mode",
+      "ModeParallel": "Parallel",
+      "ModeSequential": "Sequential",
+      "File": "Sound File",
+      "Browse": "Browse",
+      "Level": "Level",
+      "DragPriority": "Drag to reprioritize",
+      "NoRules": "No Sound FX rules configured.",
+      "NoSounds": "No sounds in this rule.",
+      "V13Only": "Sound FX requires Foundry VTT V13+.",
+      "KindParticle": "Particle",
+      "KindFilter": "Filter",
+      "RuleConfigTitle": "Sound Rule",
+      "EditRule": "Edit Rule",
+      "Save": "Save",
+      "Cancel": "Cancel",
+      "Sounds": "Sounds",
+      "FadeTime": "Fade Time",
+      "FadeTimeHint": "Fade in/out time in milliseconds.",
+      "EffectsHint": "Select one effect for a single-effect sound rule, or select multiple effects to create a combo rule with higher priority.",
+      "NoEffectsSelected": "No effects selected."
     }
   }
 }

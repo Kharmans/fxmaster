@@ -3,7 +3,6 @@
     "LANGUAGE": "Deutsch",
     "MAINTAINERS": "SesuUisu (Sesu#7562), ghost#2000"
   },
-
   "CONTROLS": {
     "Effects": "Effekt-Steuerung",
     "SpecialFX": "Spezialeffekte",
@@ -14,7 +13,6 @@
     "ClearFX": "Partikel- und Filtereffekte löschen",
     "ToolsActive": "Werkzeuge aktiv"
   },
-
   "FXMASTER": {
     "Common": {
       "ParticleEffect": "Partikeleffekt",
@@ -46,7 +44,6 @@
       "Music": "Musik",
       "Splash": "Spritzer"
     },
-
     "Params": {
       "Saturation": "Sättigung",
       "Gamma": "Gamma",
@@ -97,9 +94,9 @@
       "ShadowDistance": "Schattenabstand",
       "ShadowBlur": "Schattenweichzeichnung",
       "ShadowOpacity": "Schatten-Deckkraft",
-      "BelowTokens": "Unter Tokens"
+      "BelowTokens": "Unter Tokens",
+      "SoundFxEnabled": "Sound FX"
     },
-
     "Particles": {
       "Groups": {
         "Other": "Sonstiges",
@@ -161,7 +158,6 @@
         "TypeNotFound": "Kein Partikeleffekt für Typ gefunden: {type}"
       }
     },
-
     "Filters": {
       "Effects": {
         "Bloom": "Bloom",
@@ -178,7 +174,6 @@
         "TypeNotFound": "Kein Filtereffekt für Typ gefunden: {type}"
       }
     },
-
     "Regions": {
       "BehaviorNames": {
         "ParticleEffectRegionBehaviorName": "FXMaster: Partikeleffekte",
@@ -195,7 +190,6 @@
         "AlwaysVisibleForGM": "Für SL immer sichtbar"
       }
     },
-
     "AnimationEffect": {
       "AllAnimations": "Alle Animationen",
       "Copied": "Kopiert: {value}",
@@ -232,6 +226,36 @@
       "RefreshDbError": "FXMaster | Keine Animationseffekte in der FXMaster-DB gefunden. Warte auf den Abschluss des aktuellen Scans oder öffne „Moduleinstellungen → FXMaster → Animationsdatenbank aktualisieren“.",
       "RefreshDbEmpty": "FXMaster | Keine Animationseffekte in der FXMaster-DB. FXMaster befüllt aus deinem eigenen Animationsordner oder Anbietern wie JB2A, Boss Loot usw. Falls hinzugefügt, unter „Moduleinstellungen → FXMaster → Animationsdatenbank aktualisieren“ erneut scannen.",
       "ScanCompleteEmpty": "FXMaster | Scan abgeschlossen – Keine Animationseffekte gefunden. Füge Animationen hinzu (eigener Ordner oder Anbieter) und führe die Aktualisierung erneut aus."
+    },
+    "SoundFX": {
+      "ControlTitle": "Sound FX",
+      "ManagerTitle": "Sound FX Manager",
+      "AddRule": "Add Sound Rule",
+      "DeleteRule": "Delete Rule",
+      "AddSound": "Add Sound",
+      "DeleteSound": "Delete Sound",
+      "Effects": "Effects",
+      "Mode": "Mode",
+      "ModeParallel": "Parallel",
+      "ModeSequential": "Sequential",
+      "File": "Sound File",
+      "Browse": "Browse",
+      "Level": "Level",
+      "DragPriority": "Drag to reprioritize",
+      "NoRules": "No Sound FX rules configured.",
+      "NoSounds": "No sounds in this rule.",
+      "V13Only": "Sound FX requires Foundry VTT V13+.",
+      "KindParticle": "Particle",
+      "KindFilter": "Filter",
+      "RuleConfigTitle": "Sound Rule",
+      "EditRule": "Edit Rule",
+      "Save": "Save",
+      "Cancel": "Cancel",
+      "Sounds": "Sounds",
+      "FadeTime": "Fade Time",
+      "FadeTimeHint": "Fade in/out time in milliseconds.",
+      "EffectsHint": "Select one effect for a single-effect sound rule, or select multiple effects to create a combo rule with higher priority.",
+      "NoEffectsSelected": "No effects selected."
     }
   }
 }

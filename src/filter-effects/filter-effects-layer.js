@@ -19,6 +19,7 @@ import {
   buildPolygonEdges,
   hasMultipleNonHoleShapes,
   edgeFadeWorldWidth,
+  estimateRegionInradius,
   composeMaskMinusTokens,
   composeMaskMinusTokensRT,
   rectFromAligned,
@@ -35,58 +36,243 @@ const FILTER_TYPE = `${packageId}.filterEffectsRegion`;
 
 function _geomKeyFromShapes(shapes) {
   const parts = [];
-  for (const s of shapes) {
-    parts.push(s.type, s.hole ? 1 : 0);
-    if (s.type === "rectangle") parts.push(s.x, s.y, s.width, s.height);
-    else if (s.type === "ellipse" || s.type === "circle") {
-      const rx = s.type === "circle" ? s.radius ?? 0 : s.radiusX ?? 0;
-      const ry = s.type === "circle" ? s.radius ?? 0 : s.radiusY ?? 0;
-      parts.push(s.x ?? 0, s.y ?? 0, rx, ry);
-    } else if (Array.isArray(s.points)) {
-      if (typeof s.points[0] === "object") {
-        for (const p of s.points) parts.push(p.x, p.y);
-      } else {
-        parts.push(...s.points);
+
+  const fmtNum = (n) => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "";
+    return Math.round(v * 10000) / 10000;
+  };
+
+  const pushArray = (arr, prefix) => {
+    if (!Array.isArray(arr) || !arr.length) return;
+    if (typeof arr[0] === "number") {
+      parts.push(prefix);
+      for (const v of arr) parts.push(fmtNum(v));
+      return;
+    }
+    if (typeof arr[0] === "object") {
+      parts.push(prefix);
+      for (const p of arr) {
+        if (!p) continue;
+        parts.push(fmtNum(p.x), fmtNum(p.y));
       }
     }
+  };
+
+  const pushObjectPrimitives = (obj, prefix = "", depth = 0) => {
+    if (!obj || typeof obj !== "object") return;
+    const keys = Object.keys(obj).sort();
+    for (const k of keys) {
+      if (k === "type" || k === "hole") continue;
+      const v = obj[k];
+      if (v == null) continue;
+      const key = prefix ? `${prefix}.${k}` : k;
+      const t = typeof v;
+      if (t === "number") parts.push(key, fmtNum(v));
+      else if (t === "boolean") parts.push(key, v ? 1 : 0);
+      else if (t === "string") parts.push(key, v);
+      else if (Array.isArray(v)) pushArray(v, key);
+      else if (t === "object" && depth < 1) pushObjectPrimitives(v, key, depth + 1);
+    }
+  };
+
+  for (const s of shapes ?? []) {
+    if (!s) continue;
+    const data = typeof s.toObject === "function" ? s.toObject() : s;
+    const type = data?.type ?? s.type ?? "unknown";
+    const hole = !!(data?.hole ?? s.hole);
+    parts.push(type, hole ? 1 : 0);
+    pushObjectPrimitives(data);
   }
+
   return parts.join(",");
 }
 
 function _analyzeAnalyticShape(placeable) {
   const shapes = (placeable?.document?.shapes ?? []).filter((s) => !s.hole);
   if (shapes.length !== 1) return null;
-  const s = shapes[0];
-  if (s.type === "rectangle") {
-    const center = { x: s.x + s.width * 0.5, y: s.y + s.height * 0.5 };
-    const half = { x: Math.abs(s.width) * 0.5, y: Math.abs(s.height) * 0.5 };
-    const rotation = 0;
-    return { mode: 1, center, half, rotation };
+
+  const raw = shapes[0];
+  const s = typeof raw?.toObject === "function" ? raw.toObject() : raw;
+  const type = s?.type ?? raw?.type ?? "unknown";
+
+  // If a shape is represented by multiple polygons do not treat it as a simple analytic primitive.
+  const polys = s?.polygons ?? raw?.polygons;
+  if (Array.isArray(polys) && polys.length > 1) return null;
+
+  const num = (v, d = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : d;
+  };
+  const abs = (v, d = 0) => Math.abs(num(v, d));
+  const degToRad = (deg) => (num(deg, 0) * Math.PI) / 180;
+
+  /**
+   * Attempt to convert a single shape datum into an analytic primitive.
+   * @param {object} data
+   * @param {number} extra
+   */
+  const analyticFrom = (data, extra = 0) => {
+    if (!data || typeof data !== "object") return null;
+    const t = data.type;
+
+    if (t === "rectangle") {
+      const x = num(data.x);
+      const y = num(data.y);
+      const w = num(data.width);
+      const h = num(data.height);
+      const rot = degToRad(data.rotation);
+      const center = { x: x + w * 0.5, y: y + h * 0.5 };
+      const half = { x: abs(w) * 0.5 + extra, y: abs(h) * 0.5 + extra };
+      return { mode: 1, center, half, rotation: rot };
+    }
+
+    if (t === "circle") {
+      const r = abs(data.radius);
+      const rr = r + extra;
+      const center = { x: num(data.x), y: num(data.y) };
+      const half = { x: rr, y: rr };
+      const rot = degToRad(data.rotation);
+      return { mode: 2, center, half, rotation: rot };
+    }
+
+    if (t === "ellipse") {
+      const rx = abs(data.radiusX);
+      const ry = abs(data.radiusY);
+      const center = { x: num(data.x), y: num(data.y) };
+      const half = { x: rx + extra, y: ry + extra };
+      const rot = degToRad(data.rotation);
+      return { mode: 2, center, half, rotation: rot };
+    }
+
+    if (t === "token") {
+      if (Number.isFinite(Number(data.width)) && Number.isFinite(Number(data.height))) {
+        const x = num(data.x);
+        const y = num(data.y);
+        const w = num(data.width);
+        const h = num(data.height);
+        const rot = degToRad(data.rotation);
+        const center = { x: x + w * 0.5, y: y + h * 0.5 };
+        const half = { x: abs(w) * 0.5 + extra, y: abs(h) * 0.5 + extra };
+        return { mode: 1, center, half, rotation: rot };
+      }
+    }
+
+    return null;
+  };
+
+  if (type === "emanation") {
+    const rot = degToRad(raw?.rotation ?? s?.rotation ?? 0);
+
+    const emanationLooksEllipseLike = () => {
+      const baseType = s?.base?.type ?? raw?.base?.type ?? null;
+      if (baseType === "token") return false;
+      const polysLive = raw?.polygons ?? s?.polygons;
+      if (!Array.isArray(polysLive) || polysLive.length !== 1) return false;
+
+      const p0 = polysLive[0];
+      const pts = p0?.points ?? p0;
+      if (!Array.isArray(pts) || pts.length < 8) return false;
+
+      const flat = typeof pts[0] === "number";
+      const n = flat ? (pts.length / 2) | 0 : pts.length | 0;
+      if (n < 6) return false;
+
+      let maxLen = 0;
+      let sumLen = 0;
+      let count = 0;
+
+      const getXY = (i) => {
+        if (flat) return [Number(pts[i * 2]), Number(pts[i * 2 + 1])];
+        const p = pts[i];
+        return [Number(p?.x), Number(p?.y)];
+      };
+
+      for (let i = 0; i < n; i++) {
+        const [x0, y0] = getXY(i);
+        const [x1, y1] = getXY((i + 1) % n);
+        if (!Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1)) continue;
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const len = Math.hypot(dx, dy);
+        if (!Number.isFinite(len) || len <= 0) continue;
+        sumLen += len;
+        if (len > maxLen) maxLen = len;
+        count++;
+      }
+
+      if (count < 6) return false;
+      const mean = sumLen / count;
+      if (!Number.isFinite(mean) || mean <= 0) return false;
+
+      const edgeUniform = maxLen / mean < 1.8;
+
+      const area = Number(raw?.area ?? s?.area);
+      const ratio =
+        Number.isFinite(area) && Number.isFinite(bw) && Number.isFinite(bh) && bw > 0 && bh > 0
+          ? area / (bw * bh)
+          : NaN;
+      const ellipseRatio = Math.PI / 4;
+      const ratioLooksEllipse = Number.isFinite(ratio) ? Math.abs(ratio - ellipseRatio) < 0.012 : true;
+
+      return edgeUniform && ratioLooksEllipse;
+    };
+
+    const cRaw = raw?.center ?? s?.center ?? null;
+    const bRaw = raw?.bounds ?? s?.bounds ?? null;
+
+    const bw = Number(bRaw?.width);
+    const bh = Number(bRaw?.height);
+
+    const cx = Number(cRaw?.x);
+    const cy = Number(cRaw?.y);
+    const bx = Number(bRaw?.x);
+    const by = Number(bRaw?.y);
+
+    if (Number.isFinite(bw) && Number.isFinite(bh) && bw > 0 && bh > 0) {
+      const center =
+        Number.isFinite(cx) && Number.isFinite(cy)
+          ? { x: cx, y: cy }
+          : Number.isFinite(bx) && Number.isFinite(by)
+          ? { x: bx + 0.5 * bw, y: by + 0.5 * bh }
+          : null;
+
+      if (center && emanationLooksEllipseLike()) {
+        return {
+          mode: 2,
+          center,
+          half: { x: 0.5 * bw, y: 0.5 * bh },
+          rotation: rot,
+        };
+      }
+    }
+
+    return null;
   }
-  if (s.type === "ellipse" || s.type === "circle") {
-    const rX = s.type === "circle" ? s.radius ?? 0 : s.radiusX ?? 0;
-    const rY = s.type === "circle" ? s.radius ?? 0 : s.radiusY ?? 0;
-    const center = { x: Number(s.x) || 0, y: Number(s.y) || 0 };
-    const half = { x: Math.abs(rX), y: Math.abs(rY) };
-    const rotation = 0;
-    return { mode: 2, center, half, rotation };
-  }
-  return null;
+
+  return analyticFrom({ ...s, type }, 0);
 }
 
-function _regionWantsEdgeFade(placeable, behaviors) {
+function _regionMaxFadeFrac(placeable, behaviors) {
+  let maxFrac = 0;
+
   for (const b of behaviors ?? []) {
     const defs = b.getFlag(packageId, "filters");
     if (!defs) continue;
+
     for (const [, { options }] of Object.entries(defs)) {
-      const v = options?.fadePercent ?? 0;
-      if (typeof v === "number" && v > 0) return true;
+      const raw = Number(options?.fadePercent ?? 0);
+      if (!Number.isFinite(raw) || raw <= 0) continue;
+
+      const frac = raw > 1 ? Math.min(1, raw / 100) : Math.min(1, raw);
+      if (frac > maxFrac) maxFrac = frac;
     }
   }
-  return false;
+
+  return maxFrac;
 }
 
-function _edtSignedFromBinary(binaryCanvas) {
+function _edtSignedFromBinary(binaryCanvas, { encK = 8.0 } = {}) {
   let W = Math.max(1, binaryCanvas?.width | 0);
   let H = Math.max(1, binaryCanvas?.height | 0);
   if (!Number.isFinite(W) || !Number.isFinite(H)) {
@@ -100,48 +286,75 @@ function _edtSignedFromBinary(binaryCanvas) {
   const inside = new Uint8Array(W * H);
   for (let i = 0, p = 0; i < img.length; i += 4, p++) inside[p] = img[i + 3] >= 128 ? 1 : 0;
 
-  const INF = 1e12,
-    n = W * H;
-  const dIn = new Float32Array(n);
-  const dOut = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    dIn[i] = inside[i] ? INF : 0;
-    dOut[i] = inside[i] ? 0 : INF;
-  }
+  const INF = 1e20;
+  const n = W * H;
 
-  const dx = [-1, 0, 1, -1, 0, 1, -1, 0, 1],
-    dy = [-1, -1, -1, 0, 0, 0, 1, 1, 1],
-    w = [2, 1, 2, 1, 0, 1, 2, 1, 2];
-  const pass = (D) => {
-    for (let y = 0; y < H; y++)
-      for (let x = 0; x < W; x++) {
-        const i = y * W + x;
-        let best = D[i];
-        for (let k = 0; k < 5; k++) {
-          const nx = x + dx[k],
-            ny = y + dy[k];
-          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-          const cand = D[ny * W + nx] + w[k];
-          if (cand < best) best = cand;
-        }
-        D[i] = best;
+  // 1D exact EDT.
+  const edt1d = (f, n, d, v, z) => {
+    let k = 0;
+    v[0] = 0;
+    z[0] = -INF;
+    z[1] = INF;
+
+    for (let q = 1; q < n; q++) {
+      let p = v[k];
+      let s = (f[q] + q * q - (f[p] + p * p)) / (2 * (q - p));
+
+      while (k > 0 && s <= z[k]) {
+        k--;
+        p = v[k];
+        s = (f[q] + q * q - (f[p] + p * p)) / (2 * (q - p));
       }
-    for (let y = H - 1; y >= 0; y--)
-      for (let x = W - 1; x >= 0; x--) {
-        const i = y * W + x;
-        let best = D[i];
-        for (let k = 4; k < 9; k++) {
-          const nx = x + dx[k],
-            ny = y + dy[k];
-          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-          const cand = D[ny * W + nx] + w[k];
-          if (cand < best) best = cand;
-        }
-        D[i] = best;
-      }
+
+      k++;
+      v[k] = q;
+      z[k] = s;
+      z[k + 1] = INF;
+    }
+
+    k = 0;
+    for (let q = 0; q < n; q++) {
+      while (z[k + 1] < q) k++;
+      const p = v[k];
+      const dx = q - p;
+      d[q] = dx * dx + f[p];
+    }
   };
-  pass(dIn);
-  pass(dOut);
+
+  // 2D exact EDT from a binary feature predicate.
+  const maxN = Math.max(W, H);
+  const f = new Float32Array(maxN);
+  const d = new Float32Array(maxN);
+  const v = new Int32Array(maxN);
+  const z = new Float32Array(maxN + 1);
+
+  const tmp = new Float32Array(n);
+
+  const edt2dMask = (featureIsInside) => {
+    // Row pass
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      for (let x = 0; x < W; x++) {
+        const isFeature = inside[row + x] === (featureIsInside ? 1 : 0);
+        f[x] = isFeature ? 0 : INF;
+      }
+      edt1d(f, W, d, v, z);
+      for (let x = 0; x < W; x++) tmp[row + x] = d[x];
+    }
+
+    // Column pass
+    const out = new Float32Array(n);
+    for (let x = 0; x < W; x++) {
+      for (let y = 0; y < H; y++) f[y] = tmp[y * W + x];
+      edt1d(f, H, d, v, z);
+      for (let y = 0; y < H; y++) out[y * W + x] = d[y];
+    }
+    return out;
+  };
+
+  // dOut: distance to inside features. dIn: distance to outside features.
+  const dOut = edt2dMask(true);
+  const dIn = edt2dMask(false);
 
   const can = document.createElement("canvas");
   can.width = W;
@@ -150,7 +363,7 @@ function _edtSignedFromBinary(binaryCanvas) {
   const out = octx.createImageData(W, H);
   for (let i = 0; i < n; i++) {
     const sd = Math.sqrt(dOut[i]) - Math.sqrt(dIn[i]);
-    const v = Math.max(0, Math.min(255, Math.round(127 + 8.0 * sd)));
+    const v = Math.max(0, Math.min(255, Math.round(127.5 + encK * sd)));
     out.data[i * 4 + 0] = v;
     out.data[i * 4 + 1] = v;
     out.data[i * 4 + 2] = v;
@@ -160,7 +373,7 @@ function _edtSignedFromBinary(binaryCanvas) {
   return { sdfCanvas: can };
 }
 
-function _buildRegionSDF_FromBinary(placeable, worldBounds) {
+function _buildRegionSDF_FromBinary(placeable, worldBounds, { maxDistWorld = null } = {}) {
   const minSize = 1e-3;
   const safeBounds = {
     x: Number(worldBounds.x),
@@ -177,8 +390,17 @@ function _buildRegionSDF_FromBinary(placeable, worldBounds) {
   const gl = r.gl;
   const maxTex = gl?.getParameter?.(gl.MAX_TEXTURE_SIZE) || 8192;
 
+  // Base resolution: one SDF texel roughly corresponds to one renderer output pixel in world units.
   let wpt = Math.max(safeBounds.width / devW, safeBounds.height / devH);
   if (!Number.isFinite(wpt) || wpt <= 0) wpt = 1;
+
+  const encK = 8.0;
+  if (Number.isFinite(Number(maxDistWorld)) && Number(maxDistWorld) > 0) {
+    // Signed SDF uses half the 8-bit range for inside distances.
+    const maxSdTex = 127.0 / encK; // ~15.875 texels
+    const wantWpt = Number(maxDistWorld) / Math.max(maxSdTex, 1e-6);
+    if (Number.isFinite(wantWpt) && wantWpt > 0) wpt = Math.max(wpt, wantWpt);
+  }
 
   let W = Math.max(1, Math.ceil(safeBounds.width / wpt));
   let H = Math.max(1, Math.ceil(safeBounds.height / wpt));
@@ -193,15 +415,29 @@ function _buildRegionSDF_FromBinary(placeable, worldBounds) {
     wpt = safeBounds.width / W;
   }
 
+  let padPx = 2;
+  padPx = Math.min(padPx, Math.floor((W - 1) / 2), Math.floor((H - 1) / 2));
+  if (!Number.isFinite(padPx) || padPx < 0) padPx = 0;
+
+  const innerW = Math.max(1, W - 2 * padPx);
+  const innerH = Math.max(1, H - 2 * padPx);
+
+  // World-units per texel for SDF decode.
+  const wptX = safeBounds.width / innerW;
+  const wptY = safeBounds.height / innerH;
+  wpt = Math.max(wptX, wptY);
+
+  // Encoding scale is fixed at encK=8.0 for best precision.
   const bin = document.createElement("canvas");
   bin.width = W;
   bin.height = H;
   const ctx = bin.getContext("2d", { willReadFrequently: true });
 
-  const sx = W / safeBounds.width;
-  const sy = H / safeBounds.height;
-  const ox = -safeBounds.x * sx;
-  const oy = -safeBounds.y * sy;
+  // Map safeBounds -> [padPx, padPx]..[W-padPx, H-padPx]
+  const sx = innerW / safeBounds.width;
+  const sy = innerH / safeBounds.height;
+  const ox = padPx - safeBounds.x * sx;
+  const oy = padPx - safeBounds.y * sy;
 
   ctx.save();
   ctx.setTransform(sx, 0, 0, sy, ox, oy);
@@ -210,26 +446,27 @@ function _buildRegionSDF_FromBinary(placeable, worldBounds) {
   const shapes = placeable?.document?.shapes ?? [];
 
   ctx.globalCompositeOperation = "source-over";
-  ctx.beginPath();
+  ctx.fillStyle = "#ffffff";
+
   for (const s of shapes) {
     if (s?.hole) continue;
+    ctx.beginPath();
     traceRegionShapePath2D(ctx, s);
+    ctx.fill();
   }
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
 
   ctx.globalCompositeOperation = "destination-out";
-  ctx.beginPath();
+  ctx.fillStyle = "#ffffff";
   for (const s of shapes) {
     if (!s?.hole) continue;
+    ctx.beginPath();
     traceRegionShapePath2D(ctx, s);
+    ctx.fill();
   }
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
 
   ctx.restore();
 
-  const { sdfCanvas } = _edtSignedFromBinary(bin);
+  const { sdfCanvas } = _edtSignedFromBinary(bin, { encK });
 
   const base = PIXI.BaseTexture.from(sdfCanvas, {
     scaleMode: PIXI.SCALE_MODES.LINEAR,
@@ -239,13 +476,14 @@ function _buildRegionSDF_FromBinary(placeable, worldBounds) {
 
   const texture = new PIXI.Texture(base);
 
-  const uSx = 1 / safeBounds.width;
-  const uSy = 1 / safeBounds.height;
-  const uTx = -safeBounds.x * uSx;
-  const uTy = -safeBounds.y * uSy;
+  // World -> UV mapping for the inset-drawn binary/SDF texture.
+  const uSx = innerW / (W * safeBounds.width);
+  const uSy = innerH / (H * safeBounds.height);
+  const uTx = padPx / W - safeBounds.x * uSx;
+  const uTy = padPx / H - safeBounds.y * uSy;
   const uUvFromWorld = new Float32Array([uSx, 0, uTx, 0, uSy, uTy, 0, 0, 1]);
 
-  const scale = (255 / 8) * wpt;
+  const scale = (255 / encK) * wpt;
   const offset = -0.5 * scale;
   const uSdfScaleOff = new Float32Array([scale, offset]);
 
@@ -451,7 +689,8 @@ export class FilterEffectsLayer extends BaseEffectsLayer {
     const worldPerCss = 0.5 * (Math.hypot(cssToWorld.a, cssToWorld.b) + Math.hypot(cssToWorld.c, cssToWorld.d));
 
     const analytic = _analyzeAnalyticShape(placeable);
-    const wantsEdgeFade = _regionWantsEdgeFade(placeable, behaviors);
+    const maxFadeFrac = _regionMaxFadeFrac(placeable, behaviors);
+    const wantsEdgeFade = maxFadeFrac > 0;
     const forceMultiSdf = hasMultipleNonHoleShapes(placeable);
 
     let worldBoundsRect;
@@ -466,10 +705,9 @@ export class FilterEffectsLayer extends BaseEffectsLayer {
       throw e;
     }
 
-    const builtEdges = buildPolygonEdges(placeable) || [];
-    const edgeCount = Math.min((builtEdges.length / 4) | 0, MAX_EDGES);
+    // Polygon edge lists are only needed when doing polygon-based edge fading (uRegionShape=0). For the common single-shape analytic cases (rect/circle/ellipse) skip computing edges entirely for performance.
+    let edgeCount = 0;
     const uEdgesArray = new Float32Array(MAX_EDGES * 4);
-    if (edgeCount > 0) uEdgesArray.set(builtEdges.slice(0, edgeCount * 4));
 
     let fadeMode = -1;
     let fadeCenter = null,
@@ -482,49 +720,81 @@ export class FilterEffectsLayer extends BaseEffectsLayer {
       uSdfTexel = null,
       uSdfInsideMax = 0;
 
-    if (analytic && !forceMultiSdf && !wantsEdgeFade) {
+    // For uRegionShape=0 (polygon) Edge Fade %, decide between edge-list (fastPoly) and SDF (% fade). Multi-shape regions always use the SDF path.
+    let fastPoly = false;
+
+    if (analytic && !forceMultiSdf) {
       fadeMode = analytic.mode;
       fadeCenter = new Float32Array([analytic.center.x, analytic.center.y]);
       fadeHalf = new Float32Array([Math.max(1e-6, analytic.half.x), Math.max(1e-6, analytic.half.y)]);
       fadeRotation = analytic.rotation || 0;
     } else if (wantsEdgeFade) {
-      const shapes = placeable?.document?.shapes ?? [];
-      const geomKey = _geomKeyFromShapes(shapes);
-
-      let cacheEntry = this._sdfCache.get(regionId);
-      if (!cacheEntry || cacheEntry.geomKey !== geomKey) {
-        try {
-          cacheEntry?.texture?.destroy(true);
-        } catch {}
-        const built = _buildRegionSDF_FromBinary(placeable, {
-          x: worldBoundsRect.x,
-          y: worldBoundsRect.y,
-          width: worldBoundsRect.width,
-          height: worldBoundsRect.height,
-        });
-        cacheEntry = {
-          geomKey,
-          texture: built.texture,
-          uUvFromWorld: built.uUvFromWorld,
-          uSdfScaleOff: built.uSdfScaleOff,
-          uSdfScaleOff4: built.uSdfScaleOff4,
-          uSdfTexel: built.uSdfTexel,
-          uSdfInsideMax: built.insideMax,
-        };
-        this._sdfCache.set(regionId, cacheEntry);
-      }
-
       fadeMode = 0;
-      sdfTex = cacheEntry.texture;
-      uUvFromWorld = cacheEntry.uUvFromWorld;
-      uSdfScaleOff = cacheEntry.uSdfScaleOff;
-      uSdfScaleOff4 = cacheEntry.uSdfScaleOff4;
-      uSdfInsideMax = cacheEntry.uSdfInsideMax;
 
-      const bt = cacheEntry.texture?.baseTexture;
-      const w = Math.max(1, bt?.width | 0);
-      const h = Math.max(1, bt?.height | 0);
-      uSdfTexel = new Float32Array([1 / w, 1 / h]);
+      uSdfInsideMax = estimateRegionInradius(placeable);
+
+      fastPoly = !forceMultiSdf && !analytic;
+
+      if (fastPoly) {
+        const builtEdges = buildPolygonEdges(placeable, { maxEdges: MAX_EDGES }) || [];
+        edgeCount = Math.min((builtEdges.length / 4) | 0, MAX_EDGES);
+        if (edgeCount > 0) uEdgesArray.set(builtEdges.slice(0, edgeCount * 4));
+
+        sdfTex = PIXI.Texture.WHITE;
+        uUvFromWorld = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+        uSdfScaleOff = new Float32Array([1, 0]);
+        uSdfScaleOff4 = new Float32Array([1, 0, 0, 1]);
+        uSdfTexel = new Float32Array([1, 1]);
+      } else {
+        const shapes = placeable?.document?.shapes ?? [];
+        const geomKey = _geomKeyFromShapes(shapes);
+
+        const desiredMaxDistWorld = Math.max(1e-6, maxFadeFrac * uSdfInsideMax);
+
+        let cacheEntry = this._sdfCache.get(regionId);
+        const needsRebuild =
+          !cacheEntry ||
+          cacheEntry.geomKey !== geomKey ||
+          (Number(cacheEntry.maxDistWorld) || 0) + 1e-6 < desiredMaxDistWorld;
+
+        if (needsRebuild) {
+          try {
+            cacheEntry?.texture?.destroy(true);
+          } catch {}
+          const built = _buildRegionSDF_FromBinary(
+            placeable,
+            {
+              x: worldBoundsRect.x,
+              y: worldBoundsRect.y,
+              width: worldBoundsRect.width,
+              height: worldBoundsRect.height,
+            },
+            { maxDistWorld: desiredMaxDistWorld },
+          );
+          cacheEntry = {
+            geomKey,
+            maxDistWorld: desiredMaxDistWorld,
+            texture: built.texture,
+            uUvFromWorld: built.uUvFromWorld,
+            uSdfScaleOff: built.uSdfScaleOff,
+            uSdfScaleOff4: built.uSdfScaleOff4,
+            uSdfTexel: built.uSdfTexel,
+          };
+          this._sdfCache.set(regionId, cacheEntry);
+        }
+
+        sdfTex = cacheEntry.texture;
+        uUvFromWorld = cacheEntry.uUvFromWorld;
+        uSdfScaleOff = cacheEntry.uSdfScaleOff;
+        uSdfScaleOff4 = cacheEntry.uSdfScaleOff4;
+
+        const bt = cacheEntry.texture?.baseTexture;
+        const w = Math.max(1, bt?.width | 0);
+        const h = Math.max(1, bt?.height | 0);
+        uSdfTexel = new Float32Array([1 / w, 1 / h]);
+
+        edgeCount = 0;
+      }
     }
 
     let anyWantsBelow = false;
@@ -595,7 +865,8 @@ export class FilterEffectsLayer extends BaseEffectsLayer {
           const fadeWorld = fadeFrac > 0 ? edgeFadeWorldWidth(placeable, fadeFrac) : 0;
 
           u.uRegionShape = fadeMode;
-          u.uUseSdf = fadeMode === 0 ? 1 : 0;
+
+          u.uUseSdf = fadeMode === 0 && !fastPoly && sdfTex ? 1 : 0;
 
           if (fadeMode === 0) {
             if ("uFadePct" in u) u.uFadePct = fadeFrac;
@@ -637,7 +908,7 @@ export class FilterEffectsLayer extends BaseEffectsLayer {
             if ("uSdfInsideMax" in u) u.uSdfInsideMax = uSdfInsideMax;
             if ("uEdges" in u) {
               u.uEdges = uEdgesArray;
-              if ("uEdgeCount" in u) u.uEdgeCount = 0;
+              if ("uEdgeCount" in u) u.uEdgeCount = edgeCount;
             }
           }
         }
@@ -871,16 +1142,22 @@ export class FilterEffectsLayer extends BaseEffectsLayer {
 
     const analytic = _analyzeAnalyticShape(placeable);
     const behaviors = placeable.document.behaviors.filter((b) => b.type === FILTER_TYPE && !b.disabled);
-    const wantsEdgeFade = _regionWantsEdgeFade(placeable, behaviors);
+    const maxFadeFrac = _regionMaxFadeFrac(placeable, behaviors);
+    const wantsEdgeFade = maxFadeFrac > 0;
     const forceMultiSdf = hasMultipleNonHoleShapes(placeable);
     const mode = wantsEdgeFade && (forceMultiSdf || !analytic) ? 0 : analytic ? analytic.mode : -1;
 
+    const fastPoly = mode === 0 && !forceMultiSdf && !analytic;
+
     const worldPerCss = 0.5 * (Math.hypot(cssToWorld.a, cssToWorld.b) + Math.hypot(cssToWorld.c, cssToWorld.d));
 
-    const builtEdges = buildPolygonEdges(placeable);
-    const edgeCount = Math.min(builtEdges.length / 4, MAX_EDGES);
+    let edgeCount = 0;
     const uEdgesArray = new Float32Array(MAX_EDGES * 4);
-    if (edgeCount > 0) uEdgesArray.set(builtEdges.slice(0, edgeCount * 4));
+    if (mode === 0 && fastPoly) {
+      const builtEdges = buildPolygonEdges(placeable, { maxEdges: MAX_EDGES }) || [];
+      edgeCount = Math.min((builtEdges.length / 4) | 0, MAX_EDGES);
+      if (edgeCount > 0) uEdgesArray.set(builtEdges.slice(0, edgeCount * 4));
+    }
 
     for (const f of entry.filters) {
       const u = f?.uniforms;
@@ -901,7 +1178,12 @@ export class FilterEffectsLayer extends BaseEffectsLayer {
       u.uCssToWorld = cssToWorldMat3;
       u.uRegionShape = mode;
 
+      // 1 => SDF-backed polygon fades; 0 => edge-list (fastPoly) fades.
+      u.uUseSdf = mode === 0 && !fastPoly ? 1.0 : 0.0;
+
       if (mode === 0) {
+        const insideMax = estimateRegionInradius(placeable);
+
         let worldBoundsRect;
         const rb = rbAligned ?? regionWorldBoundsAligned(placeable);
         if (rb && [rb.minX, rb.minY, rb.maxX, rb.maxY].every(Number.isFinite)) {
@@ -909,51 +1191,62 @@ export class FilterEffectsLayer extends BaseEffectsLayer {
         } else {
           worldBoundsRect = rectFromShapes(placeable?.document?.shapes ?? []);
         }
+        let sdfTex = PIXI.Texture.WHITE;
+        let uUvFromWorld = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+        let uSdfScaleOff = new Float32Array([1, 0]);
+        let uSdfScaleOff4 = new Float32Array([1, 0, 0, 1]);
+        let uSdfTexel = new Float32Array([1, 1]);
 
-        let sdf = this._sdfCache.get(regionId);
-        const geomKey = _geomKeyFromShapes(placeable?.document?.shapes ?? []);
-        if (!sdf || sdf.geomKey !== geomKey) {
-          try {
-            sdf?.texture?.destroy(true);
-          } catch {}
-          const b = _buildRegionSDF_FromBinary(placeable, {
-            x: worldBoundsRect.x,
-            y: worldBoundsRect.y,
-            width: worldBoundsRect.width,
-            height: worldBoundsRect.height,
-          });
-          sdf = {
-            geomKey,
-            texture: b.texture,
-            uUvFromWorld: b.uUvFromWorld,
-            uSdfScaleOff: b.uSdfScaleOff,
-            uSdfScaleOff4: b.uSdfScaleOff4,
-            uSdfTexel: b.uSdfTexel,
-            uSdfInsideMax: b.insideMax,
-          };
-          this._sdfCache.set(regionId, sdf);
+        if (!fastPoly) {
+          let sdf = this._sdfCache.get(regionId);
+          const geomKey = _geomKeyFromShapes(placeable?.document?.shapes ?? []);
+          if (!sdf || sdf.geomKey !== geomKey) {
+            try {
+              sdf?.texture?.destroy(true);
+            } catch {}
+            const b = _buildRegionSDF_FromBinary(placeable, {
+              x: worldBoundsRect.x,
+              y: worldBoundsRect.y,
+              width: worldBoundsRect.width,
+              height: worldBoundsRect.height,
+            });
+            sdf = {
+              geomKey,
+              texture: b.texture,
+              uUvFromWorld: b.uUvFromWorld,
+              uSdfScaleOff: b.uSdfScaleOff,
+              uSdfScaleOff4: b.uSdfScaleOff4,
+              uSdfTexel: b.uSdfTexel,
+            };
+            this._sdfCache.set(regionId, sdf);
+          }
+
+          sdfTex = sdf.texture;
+          uUvFromWorld = sdf.uUvFromWorld;
+          uSdfScaleOff = sdf.uSdfScaleOff;
+          uSdfScaleOff4 = sdf.uSdfScaleOff4;
+
+          const bt = sdf.texture?.baseTexture;
+          const w = Math.max(1, bt?.width | 0);
+          const h = Math.max(1, bt?.height | 0);
+          uSdfTexel = new Float32Array([1 / w, 1 / h]);
         }
 
-        const bt = sdf.texture?.baseTexture;
-        const w = Math.max(1, bt?.width | 0);
-        const h = Math.max(1, bt?.height | 0);
-        const uSdfTexel = new Float32Array([1 / w, 1 / h]);
+        u.uSdf = sdfTex;
+        u.uUvFromWorld = uUvFromWorld;
 
-        u.uSdf = sdf.texture;
-        u.uUvFromWorld = sdf.uUvFromWorld;
-
-        if (u.uSdfScaleOff instanceof Float32Array && u.uSdfScaleOff.length >= 4 && sdf.uSdfScaleOff4) {
-          u.uSdfScaleOff[0] = sdf.uSdfScaleOff4[0];
-          u.uSdfScaleOff[1] = sdf.uSdfScaleOff4[1];
-          u.uSdfScaleOff[2] = sdf.uSdfScaleOff4[2];
-          u.uSdfScaleOff[3] = sdf.uSdfScaleOff4[3];
+        if (u.uSdfScaleOff instanceof Float32Array && u.uSdfScaleOff.length >= 4 && uSdfScaleOff4) {
+          u.uSdfScaleOff[0] = uSdfScaleOff4[0];
+          u.uSdfScaleOff[1] = uSdfScaleOff4[1];
+          u.uSdfScaleOff[2] = uSdfScaleOff4[2];
+          u.uSdfScaleOff[3] = uSdfScaleOff4[3];
         } else if ("uSdfScaleOff" in u) {
-          u.uSdfScaleOff = sdf.uSdfScaleOff;
+          u.uSdfScaleOff = uSdfScaleOff;
         }
-        if ("uSdfDecode" in u) u.uSdfDecode = sdf.uSdfScaleOff;
+        if ("uSdfDecode" in u) u.uSdfDecode = uSdfScaleOff;
 
         u.uSdfTexel = uSdfTexel;
-        u.uSdfInsideMax = sdf.uSdfInsideMax;
+        if ("uSdfInsideMax" in u) u.uSdfInsideMax = insideMax;
 
         const raw = Math.max(0, Number(f.options?.fadePercent) || 0);
         const fadeFrac = raw > 1 ? Math.min(1, raw / 100) : Math.min(1, raw);
@@ -962,7 +1255,7 @@ export class FilterEffectsLayer extends BaseEffectsLayer {
         if ("uFadeWorld" in u) u.uFadeWorld = 0.0;
 
         u.uEdges = uEdgesArray;
-        u.uEdgeCount = edgeCount;
+        u.uEdgeCount = fastPoly ? edgeCount : 0;
         u.uSmoothKWorld = Math.max(2.0 * worldPerCss, 1e-6);
       } else if (analytic) {
         u.uCenter = new Float32Array([analytic.center.x, analytic.center.y]);

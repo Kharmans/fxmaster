@@ -4,6 +4,7 @@ import { FXMASTER } from "./config.js";
 import { registerHandlebarsHelpers } from "./handlebars-helpers.js";
 import { registerGetSceneControlButtonsHook } from "./controls.js";
 import { packageId } from "./constants.js";
+import { registerPresetApi } from "./api.js";
 import { ParticleEffectsLayer } from "./particle-effects/particle-effects-layer.js";
 import { ParticleRegionBehaviorType } from "./particle-effects/particle-effects-region-behavior.js";
 import { DefaultRectangleSpawnMixin } from "./particle-effects/effects/mixins/default-rectangle-spawn.js";
@@ -69,6 +70,7 @@ Hooks.once("init", function () {
   registerHooks();
   registerLayers();
   registerHandlebarsHelpers();
+  registerPresetApi();
 
   const PARTICLE_TYPE = `${packageId}.particleEffectsRegion`;
   const FILTER_TYPE = `${packageId}.filterEffectsRegion`;

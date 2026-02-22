@@ -45,16 +45,25 @@
           <div class="fxmaster-particle-expand">
             <div class="fxmaster-particle-params">
               {{#each effect.parameters as |parameterConfig parameterName|}}
-                <label class="fxmaster-param-label">
-                  {{localize parameterConfig.label}}
+                {{#if (fxmasterShouldRenderParam "particle" type parameterName)}}
+                  <label class="fxmaster-param-label">
+                    {{localize parameterConfig.label}}
 
-                  {{{fxmasterParameter
+                    {{{fxmasterParameter
+                          effect
+                          parameterConfig
+                          parameterName
+                          (getEffectParams ../../../activeEffects ../../../passiveEffects type)
+                       }}}
+                  </label>
+                {{else}}
+                  {{{fxmasterHiddenParameter
                         effect
                         parameterConfig
                         parameterName
                         (getEffectParams ../../../activeEffects ../../../passiveEffects type)
-                     }}}
-                </label>
+                  }}}
+                {{/if}}
               {{/each}}
             </div>
           </div>

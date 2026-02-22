@@ -7,6 +7,23 @@ export class SnowstormParticleEffect extends FXMasterParticleEffect {
   /** @override */
   static label = "FXMASTER.Particles.Effects.Snowstorm";
 
+  /**
+   * Snowstorm's top-down presentation reads more naturally with a smaller deadzone
+   * than other effects. This reduces the size of the empty center "hole" while
+   * still avoiding a full vortex-like convergence.
+   */
+  static get topDownDeadzoneFactor() {
+    return 0.035;
+  }
+
+  static get topDownDeadzoneMinGrid() {
+    return 0.25;
+  }
+
+  static get topDownDeadzoneMaxGrid() {
+    return 2.0;
+  }
+
   /** @override */
   static get icon() {
     return "modules/fxmaster/assets/particle-effects/icons/snow-storm.webp";
@@ -22,6 +39,7 @@ export class SnowstormParticleEffect extends FXMasterParticleEffect {
     const p = super.parameters;
     return {
       belowTokens: p.belowTokens,
+      soundFxEnabled: p.soundFxEnabled,
       tint: p.tint,
       topDown: { label: "FXMASTER.Params.TopDown", type: "checkbox", value: false },
       rotationStrength: {

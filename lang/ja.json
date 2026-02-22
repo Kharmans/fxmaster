@@ -3,7 +3,6 @@
     "LANGUAGE": "日本語",
     "MAINTAINERS": "Brother Sharp#6921, touge"
   },
-
   "CONTROLS": {
     "Effects": "特殊効果制御",
     "SpecialFX": "特殊効果",
@@ -14,7 +13,6 @@
     "ClearFX": "効果とフィルターを初期化",
     "ToolsActive": "ツールが有効"
   },
-
   "FXMASTER": {
     "Common": {
       "ParticleEffect": "パーティクル効果",
@@ -46,7 +44,6 @@
       "Music": "音楽",
       "Splash": "スプラッシュ"
     },
-
     "Params": {
       "Saturation": "彩度",
       "Gamma": "ガンマ",
@@ -97,9 +94,9 @@
       "ShadowDistance": "影の距離",
       "ShadowBlur": "影のぼかし",
       "ShadowOpacity": "影の不透明度",
-      "BelowTokens": "トークンの下に表示"
+      "BelowTokens": "トークンの下に表示",
+      "SoundFxEnabled": "Sound FX"
     },
-
     "Particles": {
       "Groups": {
         "Other": "その他",
@@ -161,7 +158,6 @@
         "TypeNotFound": "タイプに一致するパーティクル効果が見つかりません: {type}"
       }
     },
-
     "Filters": {
       "Effects": {
         "Bloom": "ブルーム",
@@ -178,7 +174,6 @@
         "TypeNotFound": "タイプに一致するフィルター効果が見つかりません: {type}"
       }
     },
-
     "Regions": {
       "BehaviorNames": {
         "ParticleEffectRegionBehaviorName": "FXMaster：パーティクル効果",
@@ -195,7 +190,6 @@
         "AlwaysVisibleForGM": "GMには常に表示"
       }
     },
-
     "AnimationEffect": {
       "AllAnimations": "すべてのアニメーション",
       "Copied": "コピーしました: {value}",
@@ -232,6 +226,36 @@
       "RefreshDbError": "FXMaster | アニメーションが見つかりません。スキャン完了を待つか、「モジュール設定 → FXMaster → アニメーションデータベースを更新」を実行してください。",
       "RefreshDbEmpty": "FXMaster | アニメーションが登録されていません。カスタムフォルダや JB2A、Boss Loot などの提供元を設定後、「モジュール設定 → FXMaster → アニメーションデータベースを更新」を実行してください。",
       "ScanCompleteEmpty": "FXMaster | スキャン完了 — アニメーションが見つかりません。追加後に再スキャンしてください。"
+    },
+    "SoundFX": {
+      "ControlTitle": "Sound FX",
+      "ManagerTitle": "Sound FX Manager",
+      "AddRule": "Add Sound Rule",
+      "DeleteRule": "Delete Rule",
+      "AddSound": "Add Sound",
+      "DeleteSound": "Delete Sound",
+      "Effects": "Effects",
+      "Mode": "Mode",
+      "ModeParallel": "Parallel",
+      "ModeSequential": "Sequential",
+      "File": "Sound File",
+      "Browse": "Browse",
+      "Level": "Level",
+      "DragPriority": "Drag to reprioritize",
+      "NoRules": "No Sound FX rules configured.",
+      "NoSounds": "No sounds in this rule.",
+      "V13Only": "Sound FX requires Foundry VTT V13+.",
+      "KindParticle": "Particle",
+      "KindFilter": "Filter",
+      "RuleConfigTitle": "Sound Rule",
+      "EditRule": "Edit Rule",
+      "Save": "Save",
+      "Cancel": "Cancel",
+      "Sounds": "Sounds",
+      "FadeTime": "Fade Time",
+      "FadeTimeHint": "Fade in/out time in milliseconds.",
+      "EffectsHint": "Select one effect for a single-effect sound rule, or select multiple effects to create a combo rule with higher priority.",
+      "NoEffectsSelected": "No effects selected."
     }
   }
 }

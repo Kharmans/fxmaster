@@ -170,7 +170,7 @@ export class FilterRegionBehaviorType extends foundry.data.regionBehaviors.Regio
       if (!this.disabled && (mode === "enter" || mode === "enterExit")) {
         if (prevEG?.mode === mode) latched = !!prevEG.latched;
       }
-      if (prevEG.mode !== mode || !!prevEG.latched !== !!latched) {
+      if ((prevEG.mode !== mode || !!prevEG.latched !== !!latched) && game.user.isGM) {
         await this.parent.setFlag(packageId, "eventGate", { mode, latched });
       }
     } finally {
@@ -227,7 +227,7 @@ export class FilterRegionBehaviorType extends foundry.data.regionBehaviors.Regio
     const prevFilters = this.parent.getFlag(packageId, "filters") ?? {};
     const diff1 = foundry.utils.diffObject(prevFilters, nextFilters);
     const diff2 = foundry.utils.diffObject(nextFilters, prevFilters);
-    if (!foundry.utils.isEmpty(diff1) || !foundry.utils.isEmpty(diff2)) {
+    if ((!foundry.utils.isEmpty(diff1) || !foundry.utils.isEmpty(diff2)) && game.user.isGM) {
       if (Object.keys(nextFilters).length) await resetFlag(this.parent, "filters", nextFilters);
       else await this.parent.unsetFlag(packageId, "filters");
       changedAny = true;
@@ -235,7 +235,7 @@ export class FilterRegionBehaviorType extends foundry.data.regionBehaviors.Regio
 
     const gmAlwaysVisible = !!system._elev_gmAlwaysVisible;
     const prevGM = !!this.parent.getFlag(packageId, "gmAlwaysVisible");
-    if (gmAlwaysVisible !== prevGM) {
+    if (gmAlwaysVisible !== prevGM && game.user.isGM) {
       if (gmAlwaysVisible) await this.parent.setFlag(packageId, "gmAlwaysVisible", true);
       else await this.parent.unsetFlag(packageId, "gmAlwaysVisible");
       changedAny = true;
@@ -243,7 +243,7 @@ export class FilterRegionBehaviorType extends foundry.data.regionBehaviors.Regio
 
     const gateMode = system._elev_gateMode ?? "none";
     const prevGate = this.parent.getFlag(packageId, "gateMode") ?? "none";
-    if (gateMode !== prevGate) {
+    if (gateMode !== prevGate && game.user.isGM) {
       if (gateMode && gateMode !== "none") await this.parent.setFlag(packageId, "gateMode", gateMode);
       else await this.parent.unsetFlag(packageId, "gateMode");
       changedAny = true;
@@ -255,11 +255,11 @@ export class FilterRegionBehaviorType extends foundry.data.regionBehaviors.Regio
       const prevTargets = this.parent.getFlag(packageId, "tokenTargets");
       const prevArr = Array.isArray(prevTargets) ? prevTargets : prevTargets ? [prevTargets] : [];
       const eq = prevArr.length === nextTargets.length && nextTargets.every((t) => prevArr.includes(t));
-      if (!eq) {
+      if (!eq && game.user.isGM) {
         await resetFlag(this.parent, "tokenTargets", nextTargets);
         changedAny = true;
       }
-    } else {
+    } else if (game.user.isGM) {
       if (this.parent.getFlag(packageId, "tokenTargets") != null) {
         await this.parent.unsetFlag(packageId, "tokenTargets");
         changedAny = true;
@@ -289,6 +289,7 @@ export class FilterRegionBehaviorType extends foundry.data.regionBehaviors.Regio
    * @param {boolean} latched - Whether visibility is currently latched on.
    */
   async _writeEventGate(mode, latched) {
+    if (!game.user.isGM) return;
     await this.parent.setFlag(packageId, "eventGate", { mode, latched: !!latched });
   }
 
@@ -328,6 +329,7 @@ export class FilterRegionBehaviorType extends foundry.data.regionBehaviors.Regio
     }
 
     if (prev.mode !== mode || !!prev.latched !== !!latched) {
+      if (!game.user.isGM) return;
       await this.parent.setFlag(packageId, "eventGate", { mode, latched });
     }
   }

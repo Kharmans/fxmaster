@@ -37,10 +37,11 @@
       "paths": ["templates", "css", "lang"]
     }
   },
-  "version": "7.3.0",
+  "version": "7.4.0",
   "compatibility": {
     "minimum": "12",
-    "verified": "13"
+    "verified": "13",
+    "maximum": "14"
   },
   "scripts": ["libs/filters/pixi-filters.js"],
   "esmodules": ["libs/namespace-migration.js", "fxmaster.js"],

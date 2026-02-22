@@ -174,6 +174,7 @@ export class FXMasterParticleEffect extends CONFIG.fxmaster.ParticleEffectNS {
   static get parameters() {
     return {
       belowTokens: { label: "FXMASTER.Params.BelowTokens", type: "checkbox", value: false },
+      soundFxEnabled: { label: "FXMASTER.Params.SoundFxEnabled", type: "checkbox", value: false },
       tint: { label: "FXMASTER.Params.Tint", type: "color", value: { value: "#FFFFFF", apply: false } },
       scale: { label: "FXMASTER.Params.Scale", type: "range", min: 0.1, value: 1, max: 5, step: 0.1, decimals: 1 },
       direction: {

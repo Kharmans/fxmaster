@@ -20,15 +20,27 @@ export class StarsParticleEffect extends FXMasterParticleEffect {
 
   /** @override */
   static get parameters() {
-    return foundry.utils.mergeObject(
-      super.parameters,
-      {
-        density: { min: 0.05, value: 0.3, max: 1, step: 0.05, decimals: 2 },
-        tint: { value: { value: "#bee8ee" } },
-        "-=direction": null,
+    const params = foundry.utils.mergeObject({}, super.parameters, { inplace: false });
+
+    params.density = {
+      ...params.density,
+      min: 0.05,
+      value: 0.3,
+      max: 1,
+      step: 0.05,
+      decimals: 2,
+    };
+
+    params.tint = {
+      ...params.tint,
+      value: {
+        ...(params.tint?.value ?? {}),
+        value: "#bee8ee",
       },
-      { performDeletions: true },
-    );
+    };
+
+    delete params.direction;
+    return params;
   }
 
   /**

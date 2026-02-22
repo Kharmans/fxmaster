@@ -24,12 +24,9 @@ export class OldFilmFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     this.initMaskUniforms(u, { withStrength: true, strengthDefault: 1.0 });
     this.initFadeUniforms(u);
     this.initRegionFadeUniforms(u, { maxEdges: MAX_EDGES });
-
-    // Pipeline state
     this.ensureVec4Uniform("srcFrame", [0, 0, 1, 1]);
     this.ensureVec2Uniform("camFrac", [0, 0]);
 
-    // Effect params
     u.time = typeof u.time === "number" ? u.time : 0.0;
     u.noiseStrength = typeof u.noiseStrength === "number" ? u.noiseStrength : 0.1;
     u.sepiaAmount = typeof u.sepiaAmount === "number" ? u.sepiaAmount : 0.3;
@@ -53,6 +50,7 @@ export class OldFilmFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   static get parameters() {
     return {
       belowTokens: { label: "FXMASTER.Params.BelowTokens", type: "checkbox", value: false },
+      soundFxEnabled: { label: "FXMASTER.Params.SoundFxEnabled", type: "checkbox", value: false },
       sepia: {
         label: "FXMASTER.Params.Sepia",
         type: "range",

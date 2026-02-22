@@ -3,7 +3,6 @@
     "LANGUAGE": "Čeština",
     "MAINTAINERS": "ghost#2000"
   },
-
   "CONTROLS": {
     "Effects": "Ovládání efektů",
     "SpecialFX": "Animace",
@@ -14,7 +13,6 @@
     "ClearFX": "Vyčistit filtry a částicové efekty",
     "ToolsActive": "Aktivní nástroje"
   },
-
   "FXMASTER": {
     "Common": {
       "ParticleEffect": "Částicové efekty",
@@ -46,7 +44,6 @@
       "Music": "Hudba",
       "Splash": "Stříkance?"
     },
-
     "Params": {
       "Saturation": "Saturace",
       "Gamma": "Gamma",
@@ -73,7 +70,7 @@
       "AnchorHint": "Lokální souřadnice počátku mezi 0,0 a 1,0",
       "Spin": "Rychlost otáčení",
       "Glow": "Záře",
-     "Parallel": "Paralelní paprsky",
+      "Parallel": "Paralelní paprsky",
       "Angle": "Vyzařovací bod/úhel",
       "Gain": "Intenzita paprsků",
       "Lacunarity": "Objem paprsků",
@@ -92,14 +89,14 @@
         "Cute": "Roztomilé",
         "Creepy": "Děsivé"
       },
-     "Shadow": "Stín?",
+      "Shadow": "Stín?",
       "ShadowRotation": "Pozice stínu",
       "ShadowDistance": "Vzdálenost stínu",
       "ShadowBlur": "Rozmazání stínu",
       "ShadowOpacity": "Průhlednost stínu",
-      "BelowTokens": "Pod tokeny?"
+      "BelowTokens": "Pod tokeny?",
+      "SoundFxEnabled": "Sound FX"
     },
-
     "Particles": {
       "Groups": {
         "Other": "Ostatní",
@@ -161,7 +158,6 @@
         "TypeNotFound": "Pro typ {type} nebyl nalezen žádný částicový efekt"
       }
     },
-
     "Filters": {
       "Effects": {
         "Bloom": "Přesvícení",
@@ -178,7 +174,6 @@
         "TypeNotFound": "Pro typ {type} nebyl nalezen žádný filtrační efekt"
       }
     },
-
     "Regions": {
       "BehaviorNames": {
         "ParticleEffectRegionBehaviorName": "FXMaster: Částicové efekty",
@@ -195,7 +190,6 @@
         "AlwaysVisibleForGM": "Vždy viditelné pro PJ"
       }
     },
-
     "AnimationEffect": {
       "AllAnimations": "Všechny animace",
       "Copied": "Zkopírováno: {value}",
@@ -232,6 +226,36 @@
       "RefreshDbError": "FXMaster | V databázi FXMaster nebyly nalezeny žádné animační efekty. Počkej na dokončení aktuálního skenu animací, nebo přejdi do 'Nastavení aplikace -> FXMaster -> Aktualizovat databázi animací' a spusť sken znovu.",
       "RefreshDbEmpty": "FXMaster | V databázi FXMaster nejsou žádné animační efekty. FXMaster nahrává animace z tvé složky vlastních animací uvedené v nastavení modulu, nebo od poskytovatelů jako JB2A, Boss Loot apod. Pokud byly animace přidány, přejdi do 'Nastavení aplikace -> FXMaster -> Aktualizovat databázi animací' a spusť sken znovu.",
       "ScanCompleteEmpty": "FXMaster | Sken animací dokončen, nebyly nalezeny žádné animační efekty. FXMaster nahrává animace z tvé složky vlastních animací uvedené v nastavení modulu, nebo od poskytovatelů jako JB2A, Boss Loot apod."
+    },
+    "SoundFX": {
+      "ControlTitle": "Sound FX",
+      "ManagerTitle": "Sound FX Manager",
+      "AddRule": "Add Sound Rule",
+      "DeleteRule": "Delete Rule",
+      "AddSound": "Add Sound",
+      "DeleteSound": "Delete Sound",
+      "Effects": "Effects",
+      "Mode": "Mode",
+      "ModeParallel": "Parallel",
+      "ModeSequential": "Sequential",
+      "File": "Sound File",
+      "Browse": "Browse",
+      "Level": "Level",
+      "DragPriority": "Drag to reprioritize",
+      "NoRules": "No Sound FX rules configured.",
+      "NoSounds": "No sounds in this rule.",
+      "V13Only": "Sound FX requires Foundry VTT V13+.",
+      "KindParticle": "Particle",
+      "KindFilter": "Filter",
+      "RuleConfigTitle": "Sound Rule",
+      "EditRule": "Edit Rule",
+      "Save": "Save",
+      "Cancel": "Cancel",
+      "Sounds": "Sounds",
+      "FadeTime": "Fade Time",
+      "FadeTimeHint": "Fade in/out time in milliseconds.",
+      "EffectsHint": "Select one effect for a single-effect sound rule, or select multiple effects to create a combo rule with higher priority.",
+      "NoEffectsSelected": "No effects selected."
     }
   }
 }

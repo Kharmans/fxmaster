@@ -111,7 +111,7 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     } catch {}
     this._scratchGfx = null;
 
-    // Above band
+    /** Cleanup of above-band scene container and mask bindings. */
     try {
       if (this._aboveContent?.mask) this._aboveContent.mask = null;
     } catch {}
@@ -120,13 +120,13 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     } catch {}
     this._aboveContent = null;
 
-    // Below band
+    /** Cleanup of below-band scene container. */
     try {
       this._belowContainer?.destroy({ children: true });
     } catch {}
     this._belowContainer = null;
 
-    // Bucket refs
+    /** Clear strong references to scene buckets and their mask sprites. */
     this._sceneBelowBase = null;
     this._sceneBelowCutout = null;
     this._sceneAboveBase = null;
@@ -156,7 +156,7 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
   }
 
   #destroyEffects() {
-    // Scene FX
+    /** Destroy all scene-level particle effects. */
     for (const fx of this.particleEffects.values()) {
       try {
         fx.stop?.();
@@ -177,7 +177,7 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     }
     this._dyingSceneEffects.clear();
 
-    // Region FX
+    /** Destroy all region-level particle effects and associated mask sprites. */
     for (const entries of this.regionEffects.values()) {
       for (const entry of entries) {
         const fx = entry?.fx ?? null;
@@ -258,19 +258,19 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
    * @param {{ base: PIXI.RenderTexture|null, cutout: PIXI.RenderTexture|null }} masks
    */
   setSceneMaskTextures({ base = null, cutout = null } = {}) {
-    const baseTex = base ?? PIXI.Texture.EMPTY;
-    const cutoutTex = cutout ?? PIXI.Texture.EMPTY;
+    const baseValid = !!base && !base.destroyed && !!base.orig && !base.baseTexture?.destroyed;
+    const cutoutValid = !!cutout && !cutout.destroyed && !!cutout.orig && !cutout.baseTexture?.destroyed;
 
     const apply = (spr, tex, enabled) => {
       if (!spr || spr.destroyed) return;
-      spr.texture = tex;
+      spr.texture = tex ?? PIXI.Texture.EMPTY;
       spr._fxmMaskEnabled = !!enabled;
     };
 
-    apply(this._sceneBelowBaseMask, baseTex, !!base);
-    apply(this._sceneAboveBaseMask, baseTex, !!base);
-    apply(this._sceneBelowCutoutMask, cutoutTex, !!cutout);
-    apply(this._sceneAboveCutoutMask, cutoutTex, !!cutout);
+    apply(this._sceneBelowBaseMask, baseValid ? base : PIXI.Texture.EMPTY, baseValid);
+    apply(this._sceneAboveBaseMask, baseValid ? base : PIXI.Texture.EMPTY, baseValid);
+    apply(this._sceneBelowCutoutMask, cutoutValid ? cutout : PIXI.Texture.EMPTY, cutoutValid);
+    apply(this._sceneAboveCutoutMask, cutoutValid ? cutout : PIXI.Texture.EMPTY, cutoutValid);
   }
 
   #updateSceneParticlesSuppressionForCamera(M = this._currentCameraMatrix ?? snappedStageMatrix()) {
@@ -769,8 +769,13 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
         } catch {}
       }
 
-      spr.width = cssW;
-      spr.height = cssH;
+      /** Guard against transient invalid textures during scene transitions. */
+      try {
+        if (spr._texture?.orig) {
+          spr.width = cssW;
+          spr.height = cssH;
+        }
+      } catch {}
 
       return spr;
     };
@@ -858,7 +863,9 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
   _animate() {
     super._animate();
 
-    this._sanitizeSceneMasks();
+    try {
+      this._sanitizeSceneMasks();
+    } catch {}
 
     if (this.regionEffects.size === 0) return;
 
@@ -1053,8 +1060,30 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
         return;
       }
 
-      spr.width = cssW;
-      spr.height = cssH;
+      /**
+       * Skip updates when the sprite points at an invalid texture.
+       * PIXI's Sprite width/height setters read texture.orig dimensions and may throw.
+       */
+      if (!spr._texture || !spr._texture.orig) {
+        if (bucket.mask === spr) {
+          try {
+            bucket.mask = null;
+          } catch {}
+        }
+        return;
+      }
+
+      try {
+        spr.width = cssW;
+        spr.height = cssH;
+      } catch {
+        if (bucket.mask === spr) {
+          try {
+            bucket.mask = null;
+          } catch {}
+        }
+        return;
+      }
 
       try {
         applyMaskSpriteTransform(bucket, spr);

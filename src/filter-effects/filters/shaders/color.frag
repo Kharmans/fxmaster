@@ -62,6 +62,9 @@ uniform float uFadePx;         // CSS px
 uniform float uUsePct;         // 1 => use uFadePct
 uniform float uFadePct;        // 0..1
 
+/* SDF-backed polygon % fades (used for multi-shape regions) */
+uniform float uUseSdf;        // 1 => use SDF for polygon % fades
+
 /* Polygon edges (analytic percent fade) */
 #define MAX_EDGES 64
 uniform float uEdgeCount;      // <= MAX_EDGES
@@ -174,9 +177,7 @@ float fadePctPoly_edges(vec2 pW, float pct) {
   float inrad  = (uSdfInsideMax > 0.0) ? uSdfInsideMax : inradFallback;
   float band   = max(pct * inrad, 1e-6);
 
-  // blend edges with LSE; temperature scales with band
-  float tau = max(uSmoothKWorld, band * 0.25); // 25% of band or world smoothing hint
-
+  // Use the true minimum distance to any segment.
   float dMin = 1e20;
   for (int i = 0; i < MAX_EDGES; ++i) {
     if (float(i) >= uEdgeCount) break;
@@ -185,17 +186,17 @@ float fadePctPoly_edges(vec2 pW, float pct) {
     dMin = min(dMin, di);
   }
 
-  float sumExp = 0.0;
-  for (int i = 0; i < MAX_EDGES; ++i) {
-    if (float(i) >= uEdgeCount) break;
-    vec4 AB = uEdges[i];
-    float di = distToSegment(pW, AB.xy, AB.zw);
-    sumExp += exp(-(di - dMin) / max(tau, 1e-6));
-  }
-
-  float d = lseSmoothMin(dMin, sumExp, tau);
-  return clamp(d / band, 0.0, 1.0);
+  return clamp(dMin / band, 0.0, 1.0);
 }
+
+float fadePctPoly_sdf(vec2 pW, float pct) {
+  float inradFallback = 0.5 * max(uSdfScaleOff.x, 1e-6);
+  float inrad = (uSdfInsideMax > 0.0) ? uSdfInsideMax : inradFallback;
+  float band  = max(pct * inrad, 1e-6);
+  float insideD = max(-sdPolySmooth(pW), 0.0);
+  return clamp(insideD / band, 0.0, 1.0);
+}
+
 
 /* ---------- Absolute-width fades (world px) ---------- */
 float maskPolySdf_abs(vec2 pW, float fadeWorld) {
@@ -249,7 +250,9 @@ void main(void) {
     if (pct > 0.0) {
       if (uRegionShape == 1)       fade = fadePctRect(pW, pct);
       else if (uRegionShape == 2)  fade = fadePctEllipse(pW, pct);
-      else if (uRegionShape == 0)  fade = fadePctPoly_edges(pW, pct); // polygon: analytic edges
+      else if (uRegionShape == 0) {
+        fade = (uUseSdf > 0.5) ? fadePctPoly_sdf(pW, pct) : fadePctPoly_edges(pW, pct);
+      }
     }
   } else {
     float fadeWorld = (uFadeWorld > 0.0) ? uFadeWorld

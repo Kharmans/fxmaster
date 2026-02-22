@@ -1,0 +1,93 @@
+{
+  "sprites": [
+    {
+      "fileName": "0000.png",
+      "width": 512,
+      "height": 512,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "fileName": "0001.png",
+      "width": 512,
+      "height": 512,
+      "x": 512,
+      "y": 0
+    },
+    {
+      "fileName": "0002.png",
+      "width": 512,
+      "height": 512,
+      "x": 1024,
+      "y": 0
+    },
+    {
+      "fileName": "0003.png",
+      "width": 512,
+      "height": 512,
+      "x": 1536,
+      "y": 0
+    },
+    {
+      "fileName": "0004.png",
+      "width": 512,
+      "height": 512,
+      "x": 0,
+      "y": 512
+    },
+    {
+      "fileName": "0005.png",
+      "width": 512,
+      "height": 512,
+      "x": 512,
+      "y": 512
+    },
+    {
+      "fileName": "0006.png",
+      "width": 512,
+      "height": 512,
+      "x": 1024,
+      "y": 512
+    },
+    {
+      "fileName": "0007.png",
+      "width": 512,
+      "height": 512,
+      "x": 1536,
+      "y": 512
+    },
+    {
+      "fileName": "0008.png",
+      "width": 512,
+      "height": 512,
+      "x": 0,
+      "y": 1024
+    },
+    {
+      "fileName": "0009.png",
+      "width": 512,
+      "height": 512,
+      "x": 512,
+      "y": 1024
+    },
+    {
+      "fileName": "0010.png",
+      "width": 512,
+      "height": 512,
+      "x": 1024,
+      "y": 1024
+    },
+    {
+      "fileName": "0011.png",
+      "width": 512,
+      "height": 512,
+      "x": 1536,
+      "y": 1024
+    }
+  ],
+  "packMode": "grid",
+  "padding": 0,
+  "backgroundColor": "rgba(0, 0, 0, 0)",
+  "spriteSheetWidth": 2048,
+  "spriteSheetHeight": 1536
+}

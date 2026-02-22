@@ -19,7 +19,7 @@ function getSceneControlButtons(t) {
     activation: {
       name: "activation",
       title: "CONTROLS.ToolsActive",
-      icon: "fas fa-power-off",
+      icon: "fas fa-circle-info",
       toggle: true,
       [onEvent]: (_event, active) => {
         if (!active && foundry.utils.isNewerVersion(game.version, "13.0.0")) return;

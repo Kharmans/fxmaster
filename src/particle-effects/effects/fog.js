@@ -26,14 +26,19 @@ export class FogParticleEffect extends DefaultRectangleSpawnMixin(FXMasterPartic
 
   /** @override */
   static get parameters() {
-    return foundry.utils.mergeObject(
-      super.parameters,
-      {
-        density: { min: 0.01, value: 0.08, max: 0.15, step: 0.01, decimals: 2 },
-        "-=direction": null,
-      },
-      { performDeletions: true },
-    );
+    const params = foundry.utils.mergeObject({}, super.parameters, { inplace: false });
+
+    params.density = {
+      ...params.density,
+      min: 0.01,
+      value: 0.08,
+      max: 0.15,
+      step: 0.01,
+      decimals: 2,
+    };
+
+    delete params.direction;
+    return params;
   }
 
   /**

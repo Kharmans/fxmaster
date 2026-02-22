@@ -22,7 +22,12 @@ export class CloudsParticleEffect extends FXMasterParticleEffect {
     return foundry.utils.mergeObject(super.parameters, {
       density: { min: 0.001, value: 0.03, max: 0.2, step: 0.001, decimals: 3 },
       dropShadow: { label: "FXMASTER.Params.Shadow", type: "checkbox", value: false },
-      shadowOnly: { label: "FXMASTER.Params.ShadowOnly", type: "checkbox", value: false },
+      shadowOnly: {
+        label: "FXMASTER.Params.ShadowOnly",
+        type: "checkbox",
+        value: false,
+        showWhen: { dropShadow: true },
+      },
       shadowRotation: {
         label: "FXMASTER.Params.ShadowRotation",
         type: "range",
@@ -31,6 +36,7 @@ export class CloudsParticleEffect extends FXMasterParticleEffect {
         max: 360,
         step: 1,
         decimals: 0,
+        showWhen: { dropShadow: true },
       },
       shadowDistance: {
         label: "FXMASTER.Params.ShadowDistance",
@@ -40,6 +46,7 @@ export class CloudsParticleEffect extends FXMasterParticleEffect {
         max: 300,
         step: 1,
         decimals: 0,
+        showWhen: { dropShadow: true },
       },
       shadowBlur: {
         label: "FXMASTER.Params.ShadowBlur",
@@ -49,6 +56,7 @@ export class CloudsParticleEffect extends FXMasterParticleEffect {
         max: 20,
         step: 0.5,
         decimals: 1,
+        showWhen: { dropShadow: true },
       },
       shadowOpacity: {
         label: "FXMASTER.Params.ShadowOpacity",
@@ -58,6 +66,7 @@ export class CloudsParticleEffect extends FXMasterParticleEffect {
         max: 1,
         step: 0.05,
         decimals: 2,
+        showWhen: { dropShadow: true },
       },
     });
   }

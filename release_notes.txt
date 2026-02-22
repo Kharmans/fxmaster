@@ -1,13 +1,14 @@
-Welcome to Gambit's FXMaster V7.3.0! This release brings some fun and functional usability enhancements to Particle Effects.
-- Added new API Effects controls button to FXMaster. This button will open a window where you can manage active api effects for a given scene. 
-- Added conditional visibility for relevant toggle on/off style parameters. Ex: When Directional Movement is off, the direction and spread parameters will not be visible. They become visible if that option is toggled on. This should make it clearer which parameters actually have an effect in a given mode.
-- Added a new title bar menu item 'Hide Effects' to both the Particle Effects Management and Filter Effects Management windows. This option will open a list of current effects from FXMaster or FXMaster+ and allow them to be hidden from the management windows. This option should help to reduce clutter in instances where a given effect is not relevant for your campaign, especially for FXMaster+ users as the effects list continues to grow
-- Added localization keys for the new top down mode, directional movement mode, and lateral movement pieces, as well as the Hide Effects menu. Additional keys also added for the new FXMaster+ Glitch and Fish effects
-- Updated the Controls button localization label to FXMaster Controls from Effect Controls to make it clearer the tab is related to FXMaster
-- Updated a number of Particle Effects to give them a Top Down mode: Bubbles, Embers, Leaves, Snow, and Snowstorm in FXMaster, and Sakura Bloom plus the Directional Drift custom user template in FXMaster+
-- Updated Animals Particle Effects to give them an optional Directional Movement parameter. When enabled, all animals particles will move in the same specified direction, with an optional spread parameter to determine how much movement in that direction deviates.
-- Updated Animals Particle Effects to give them an optional Lateral Movement parameter. This option causes the particles to move in a randomized sine wave pattern and should enable more naturalistic movement.
-- Updated Top Down to be a toggleable parameter in the Rain effect and removed the separate Rain Top Down effect - no longer needed with the toggleable parameter
-- Resolved Color Picker not changing color when closing the color picker selector which made a toggle of the effect necessary to change colors. Foundrys native color picker was implemented in 7.2.0 for consistency, but it is more restrictive so live updates to colors while the color picker window is open are no longer possible.
-- Resolved a visual jump issue that could occur in the Filter Effects window when toggling certain parameters
-- Resolved multi-select inconsistently updating parameters for effects that were on, which often required a toggle of the effect to apply
+Welcome to Gambit's FXMaster V7.4.0! Following hot on the heels of 7.3, this release brings a new presets api for module integrations which starts with an official integration with the excellent Calendaria module by Tyler! Additionally, this release brings a bunch of things to get FXMaster ready for Foundry V14 on day 1.
+- Added new api FXMASTER.api.presets. Use FXMASTER.api.presets.list() for a list of all pre-built effects!
+- Added API Manager Edit button & window. This allows editing an api effect while it is in progress in a single instance editor window. Should allow even more flexibility when dealing with API ran effects.
+- Added integration pieces for fxmaster-plus' new Sound Effects Manager which ties sounds into particle or filter effect activation/deactivation within a scene or region
+- Added localization keys for the new FXMaster+ SoundFX toggles and Sound Effects Manager
+- Added localization keys for the new FXMaster+ Filter Effect Lightning Bolt
+- Added new free Particle Effect to celebrate the collaboration with Calendaria! The new effect is Hail.
+- Updated FXMaster version max to v14. This is primarily for anyone who wants to test Foundrys pre-release V14 builds, I think FXMaster is in a good enough spot for testing at this point.
+- Updated special key handling for V14 to resolve deprecation warnings
+- Updated Region behaviors to accept new region shapes present in V14
+- Updated Region Edge Fade % behavior. This behavior is now much more consistent and should cover all region shapes and multi-shape situations. When a simple shape is present FXMaster uses a polygon-edge fast path for fade, falling back to SDF rendering for more complex shapes. The idea is to allow fast updates for moving regions if a user decides to attach a region to a token with an FXMaster effect present, which should typically be a simple circle/squircle/rectangle
+- Updated the static placeholder FXMaster Controls icon from a power button FA icon to an Informational I FA icon, and changed the text to FXMaster Tools
+- TBD: V14 Levels integration. At the moment it appears FXMaster mostly just works with V14 levels, I'll be waiting for future pre-release builds to fully verify that functionality.
+- Resolved player permission errors when a GM modified FXMaster region behaviors while a player was logged in (Thank yous to Michael)

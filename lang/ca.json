@@ -3,7 +3,6 @@
     "LANGUAGE": "Català",
     "MAINTAINERS": "Montver#9776"
   },
-
   "CONTROLS": {
     "Effects": "Controls d'efectes",
     "SpecialFX": "Efectes d'animació",
@@ -14,7 +13,6 @@
     "ClearFX": "Esborra els efectes de partícules i filtres de l'escena",
     "ToolsActive": "Eines actives"
   },
-
   "FXMASTER": {
     "Common": {
       "ParticleEffect": "Efecte de partícules",
@@ -46,7 +44,6 @@
       "Music": "Música",
       "Splash": "Esquitxada"
     },
-
     "Params": {
       "Saturation": "Saturació",
       "Gamma": "Gamma",
@@ -97,9 +94,9 @@
       "ShadowDistance": "Distància de l’ombra",
       "ShadowBlur": "Desenfocament de l’ombra",
       "ShadowOpacity": "Opacitat de l’ombra",
-      "BelowTokens": "Sota les fitxes"
+      "BelowTokens": "Sota les fitxes",
+      "SoundFxEnabled": "Sound FX"
     },
-
     "Particles": {
       "Groups": {
         "Other": "Altres",
@@ -161,7 +158,6 @@
         "TypeNotFound": "No s’ha trobat cap efecte de partícules per al tipus: {type}"
       }
     },
-
     "Filters": {
       "Effects": {
         "Bloom": "Bloom",
@@ -178,7 +174,6 @@
         "TypeNotFound": "No s’ha trobat cap efecte de filtre per al tipus: {type}"
       }
     },
-
     "Regions": {
       "BehaviorNames": {
         "ParticleEffectRegionBehaviorName": "FXMaster: Efectes de partícules",
@@ -195,7 +190,6 @@
         "AlwaysVisibleForGM": "Sempre visible per al GM"
       }
     },
-
     "AnimationEffect": {
       "AllAnimations": "Totes les animacions",
       "Copied": "Copiat: {value}",
@@ -232,6 +226,36 @@
       "RefreshDbError": "FXMaster | No s’han trobat efectes d’animació a la BD de FXMaster. Espereu que acabi l’escaneig actual o aneu a «Paràmetres del mòdul -> FXMaster -> Actualitza la base de dades d’animacions».",
       "RefreshDbEmpty": "FXMaster | No hi ha efectes d’animació a la BD de FXMaster. S’omple des de la teva carpeta personalitzada o proveïdors com JB2A, Boss Loot, etc. Si n’heu afegit, aneu a «Paràmetres del mòdul -> FXMaster -> Actualitza la base de dades d’animacions».",
       "ScanCompleteEmpty": "FXMaster | Escaneig complet – No s’han trobat efectes d’animació. Afegiu animacions (carpeta personalitzada o proveïdors) i torneu a executar l’actualització."
+    },
+    "SoundFX": {
+      "ControlTitle": "Sound FX",
+      "ManagerTitle": "Sound FX Manager",
+      "AddRule": "Add Sound Rule",
+      "DeleteRule": "Delete Rule",
+      "AddSound": "Add Sound",
+      "DeleteSound": "Delete Sound",
+      "Effects": "Effects",
+      "Mode": "Mode",
+      "ModeParallel": "Parallel",
+      "ModeSequential": "Sequential",
+      "File": "Sound File",
+      "Browse": "Browse",
+      "Level": "Level",
+      "DragPriority": "Drag to reprioritize",
+      "NoRules": "No Sound FX rules configured.",
+      "NoSounds": "No sounds in this rule.",
+      "V13Only": "Sound FX requires Foundry VTT V13+.",
+      "KindParticle": "Particle",
+      "KindFilter": "Filter",
+      "RuleConfigTitle": "Sound Rule",
+      "EditRule": "Edit Rule",
+      "Save": "Save",
+      "Cancel": "Cancel",
+      "Sounds": "Sounds",
+      "FadeTime": "Fade Time",
+      "FadeTimeHint": "Fade in/out time in milliseconds.",
+      "EffectsHint": "Select one effect for a single-effect sound rule, or select multiple effects to create a combo rule with higher priority.",
+      "NoEffectsSelected": "No effects selected."
     }
   }
 }

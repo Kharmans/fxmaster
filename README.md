@@ -11,10 +11,12 @@
 <h2 style="text-align: center;">Supporting The Module</h2>
 <p style="text-align: center;"><a href="https://ko-fi.com/gambit07" target="_blank" rel="nofollow noopener"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi" /></a> <a href="https://www.patreon.com/GambitsLounge" target="_blank" rel="nofollow noopener"> <img src="https://img.shields.io/badge/Patreon-Gambits Lounge-F96854?style=for-the-badge&amp;logo=patreon" alt="Patreon Gambits Lounge" /> </a></p>
 <hr/>
-<p>Welcome to the official release of FXMaster V7.3! Many Particles have seen tweaks and functionality enhancements in V7.3, along with general performance improvements. Particle Effects now scale to the dimensions of a given scene which is a huge improvement to performance. Additionally, Foundrys native Performance modes now have special handling and the total Particle count will be reduced for lower Performance modes to help players on lower end devices. Many effects now also have a Top Down mode toggle, which will play the effects as if viewing them from above. These effects include Rain, Snow, Snowstorm, Autumn Leaves, Bubbles, Embers, and Sakura Bloom! Additionally, all Animal particle effects now have a Directional Movement toggle and a Lateral Movement parameter. Directional Movement allows all animals to move in a specific direction, with an optional spread angle in degrees. Lateral Movement allows animals to move in a sine-wave type pattern for additional randomization and more naturalistic movement. A few functionality improvements have been added as well, including a new API Effects window to control effects created via a Macro, and a new Hide Effects menu to allow hiding effects from the particle and filter effect windows if they're not relevant for your game. Hope everyone enjoys!</p>
+<p>Welcome to the official release of FXMaster V7.4! This release brings some big updates to get ready for V14! This includes handling for new region shapes, new edge fade region handling, some initial compatability with V14's levels, and more! I've bumped max compatability for both FXMaster and FXMaster+ to V14, I believe it is now ready for any enterprising users who would like to test it on pre-release V14 versions. This release also brings a brand new preset api which has been used by Tyler to integrate the excellent <a href="https://foundryvtt.com/packages/calendaria" target="_blank" style="color: #dd6b20; text-decoration: none; font-weight: bold;">Calendaria</a> module directly with FXMaster! Preset effects combine a number of different particle and/or filter effects to create a convincing environmental effect, the api contains an enhanced integration with FXMaster+ as well to use the expanded effects from that module when present in Calendaria. To support Tyler and his continuing work on Calendaria and other free modules, consider supporting him on <a href="https://patreon.com/3deathsaves" target="_blank" style="color: #dd6b20; text-decoration: none; font-weight: bold;">Patreon</a>. Hope everyone enjoys!</p>
 
-**<p>Any support via the <a href="https://www.patreon.com/GambitsLounge" target="_blank" rel="nofollow noopener">Patreon</a> or <a href="https://ko-fi.com/gambit07" target="_blank" rel="nofollow noopener">Ko-fi</a> is greatly appreciated! If you are a Patreon subscriber you will receive access to the FXMaster+ module. FXMaster+ can be accessed from Patreon, and it's where I will be adding new particle effects and filters moving forward. For the month of January, it will get you access to the 🔵Fish, 🟢Glitch, 🔵Ice, 🟤Duststorm, 🟤Sandstorm, 🟢Ghosts, 🟡Sunlight, 🟢Magic Crystals, 🟡Fireflies, 🌸Sakura Bloom, and 🌸Sakura Blossoms Effects — Effects are previewed below:</p>**
+**<p>Any support via the <a href="https://www.patreon.com/GambitsLounge" target="_blank" rel="nofollow noopener">Patreon</a> or <a href="https://ko-fi.com/gambit07" target="_blank" rel="nofollow noopener">Ko-fi</a> is greatly appreciated! If you are a Patreon subscriber you will receive access to the FXMaster+ module. FXMaster+ can be accessed from Patreon, and it's where I will be adding new particle effects and filters moving forward. For the month of February, it will get you access to the 🟡Lightning Bolts,🔵Fish, 🟢Glitch, 🔵Ice, 🟤Duststorm, 🟤Sandstorm, 🟢Ghosts, 🟡Sunlight, 🟢Magic Crystals, 🟡Fireflies, 🌸Sakura Bloom, and 🌸Sakura Blossoms Effects — Effects are previewed below:</p>**
 
+<details>
+  <summary>Fish (click to expand)</summary>
   <video
     autoplay
     muted
@@ -23,7 +25,10 @@
     preload="auto"
     src="https://github.com/user-attachments/assets/8e55950b-d19b-4222-a769-7782a7fa1e3e">
   </video>
+</details>
 
+<details>
+  <summary>Glitch (click to expand)</summary>
   <video
     autoplay
     muted
@@ -32,6 +37,7 @@
     preload="auto"
     src="https://github.com/user-attachments/assets/5a31c44b-018e-46e0-b903-b34b6ac73448">
   </video>
+</details>
 
 <details>
   <summary>Ice (click to expand)</summary>
@@ -188,7 +194,8 @@ https://github.com/gambit07/fxmaster/releases/latest/download/module.json
 - Q: Can I provide my own effects?
 
   A: You can provide your own Animation Effects via the Custom folder in the module's settings.
-  It's not possible to provide your own Particle Effects or Filter Effects.
+  You can provide your own Particle Effects when using FXMaster+ in the Manage User Particle Effects menu.
+  It's not possible to provide your own Filter Effects.
 
 ## Usage
 

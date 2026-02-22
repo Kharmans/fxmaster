@@ -31,6 +31,7 @@ export class RainParticleEffect extends FXMasterParticleEffect {
     const p = super.parameters;
     return {
       belowTokens: p.belowTokens,
+      soundFxEnabled: p.soundFxEnabled,
       tint: p.tint,
       topDown: { label: "FXMASTER.Params.TopDown", type: "checkbox", value: false },
       splash: { label: "FXMASTER.Params.Splash", type: "checkbox", value: true },

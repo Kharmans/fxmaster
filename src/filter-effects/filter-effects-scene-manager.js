@@ -9,7 +9,14 @@
 
 import { packageId } from "../constants.js";
 import { logger } from "../logger.js";
-import { resetFlag, applyMaskUniformsToFilters, getCssViewportMetrics, snappedStageMatrix } from "../utils.js";
+import {
+  resetFlag,
+  deletionUpdate,
+  applyMaskUniformsToFilters,
+  coalesceNextFrame,
+  getCssViewportMetrics,
+  snappedStageMatrix,
+} from "../utils.js";
 
 import { SceneMaskManager } from "../common/base-effects-scene-manager.js";
 
@@ -27,6 +34,9 @@ export class FilterEffectsSceneManager {
     this._ticker = false;
     this._lastRegionsMatrix = null;
     this._lastCamFrac = undefined;
+
+    /** @type {Function|null} */
+    this._coalescedBindSceneMask = null;
   }
 
   static get instance() {
@@ -56,15 +66,15 @@ export class FilterEffectsSceneManager {
 
   async clear() {
     const env = this.constructor.container;
-    const ours = Object.values(this.filters);
+    const managed = Object.values(this.filters);
     const dying = [...this._dyingFilters];
 
-    const promises = [...ours, ...dying].map((f) => f.stop?.({ skipFading: true }));
+    const promises = [...managed, ...dying].map((f) => f.stop?.({ skipFading: true }));
     await Promise.all(promises);
 
     try {
       if (env?.filters?.length) {
-        const set = new Set([...ours, ...dying]);
+        const set = new Set([...managed, ...dying]);
         env.filters = env.filters.filter((f) => !set.has(f));
       }
     } catch {}
@@ -151,7 +161,7 @@ export class FilterEffectsSceneManager {
   }
 
   async removeFilter(name) {
-    await canvas.scene?.setFlag(packageId, "filters", { [`-=${name}`]: null });
+    await canvas.scene?.setFlag(packageId, "filters", deletionUpdate(name));
   }
 
   async removeAll() {
@@ -170,30 +180,27 @@ export class FilterEffectsSceneManager {
     await resetFlag(canvas.scene, "filters", infos);
   }
 
-  #applySuppressMaskToFilters(sync = false) {
+  /**
+   * Bind the current scene suppression masks into uniforms for all active and fading filters.
+   * If the base mask is missing or destroyed, a synchronous refresh is attempted before binding.
+   * @private
+   */
+  #bindSuppressMaskUniforms() {
     const filtersArr = [...Object.values(this.filters), ...this._dyingFilters];
-    const hasAny = filtersArr.length > 0;
+    if (!filtersArr.length) return;
 
-    const anyBelow = hasAny ? filtersArr.some((f) => isBelowTokensFilter(f)) : false;
+    const anyBelow = filtersArr.some((f) => isBelowTokensFilter(f));
 
-    try {
-      SceneMaskManager.instance.setKindActive?.("filters", hasAny);
-      SceneMaskManager.instance.setBelowTokensNeeded?.("filters", anyBelow);
-    } catch {}
+    let { base, cutout, tokens } = SceneMaskManager.instance.getMasks("filters");
 
-    if (!hasAny) return;
+    if (!base || base.destroyed) {
+      try {
+        SceneMaskManager.instance.refreshSync("filters");
+      } catch {}
+      ({ base, cutout, tokens } = SceneMaskManager.instance.getMasks("filters"));
+    }
 
-    try {
-      const r = canvas?.app?.renderer;
-      const hiDpi = (r?.resolution ?? window.devicePixelRatio ?? 1) !== 1;
-
-      if (sync || (anyBelow && hiDpi)) SceneMaskManager.instance.refreshSync("filters");
-      else SceneMaskManager.instance.refresh("filters");
-    } catch {}
-
-    const { base, cutout, tokens } = SceneMaskManager.instance.getMasks("filters");
-
-    if (!base) {
+    if (!base || base.destroyed) {
       for (const f of filtersArr) {
         const u = f?.uniforms || {};
         if ("maskSampler" in u) u.maskSampler = PIXI.Texture.EMPTY;
@@ -218,6 +225,52 @@ export class FilterEffectsSceneManager {
     });
   }
 
+  /**
+   * Refresh and bind scene suppression masks for scene-wide filter effects.
+   *
+   * {@link SceneMaskManager.refresh} is animation-frame coalesced and may destroy and recreate
+   * render textures when it runs. For asynchronous refreshes, uniform binding is deferred until
+   * the next animation frame to avoid referencing textures that are replaced during refresh.
+   *
+   * @param {boolean} [sync=false]
+   * @private
+   */
+  #applySuppressMaskToFilters(sync = false) {
+    const filtersArr = [...Object.values(this.filters), ...this._dyingFilters];
+    const hasAny = filtersArr.length > 0;
+    const anyBelow = hasAny ? filtersArr.some((f) => isBelowTokensFilter(f)) : false;
+
+    try {
+      SceneMaskManager.instance.setKindActive?.("filters", hasAny);
+      SceneMaskManager.instance.setBelowTokensNeeded?.("filters", anyBelow);
+    } catch {}
+
+    if (!hasAny) return;
+
+    try {
+      const r = canvas?.app?.renderer;
+      const hiDpi = (r?.resolution ?? window.devicePixelRatio ?? 1) !== 1;
+
+      if (sync || (anyBelow && hiDpi)) {
+        SceneMaskManager.instance.refreshSync("filters");
+        this.#bindSuppressMaskUniforms();
+      } else {
+        SceneMaskManager.instance.refresh("filters");
+        this._coalescedBindSceneMask ??= coalesceNextFrame(
+          () => {
+            try {
+              this.#bindSuppressMaskUniforms();
+            } catch (err) {
+              logger?.error?.(err);
+            }
+          },
+          { key: "fxm:bindFilterSceneMasks" },
+        );
+        this._coalescedBindSceneMask();
+      }
+    } catch {}
+  }
+
   #refreshSceneFilterSuppressionMasks(sync = false) {
     const hasAny = Object.keys(this.filters).length > 0 || this._dyingFilters.size > 0;
     if (hasAny) this.#applySuppressMaskToFilters(sync);
@@ -237,15 +290,15 @@ export class FilterEffectsSceneManager {
     const env = this.constructor.container;
     if (!env) return;
 
-    const oursActive = Object.values(this.filters);
-    const oursDying = [...this._dyingFilters];
-    const oursAll = [...oursActive, ...oursDying];
+    const managedActive = Object.values(this.filters);
+    const managedDying = [...this._dyingFilters];
+    const managedAll = [...managedActive, ...managedDying];
 
     const existing = env.filters ?? [];
-    const others = existing.filter((f) => !oursAll.includes(f));
+    const others = existing.filter((f) => !managedAll.includes(f));
 
-    const nonBelow = oursAll.filter((f) => !isBelowTokensFilter(f));
-    const below = oursAll.filter((f) => isBelowTokensFilter(f));
+    const nonBelow = managedAll.filter((f) => !isBelowTokensFilter(f));
+    const below = managedAll.filter((f) => isBelowTokensFilter(f));
 
     env.filters = [...nonBelow, ...others, ...below];
   }

@@ -53,6 +53,7 @@ export class FogFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   static get parameters() {
     return {
       belowTokens: { label: "FXMASTER.Params.BelowTokens", type: "checkbox", value: false },
+      soundFxEnabled: { label: "FXMASTER.Params.SoundFxEnabled", type: "checkbox", value: false },
       color: {
         label: "FXMASTER.Params.Tint",
         type: "color",
