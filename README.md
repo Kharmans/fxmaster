@@ -9,7 +9,7 @@
   src="https://github.com/user-attachments/assets/fddaf4b7-767e-4a48-be22-8df87188f257">
 </video>
 <h2 style="text-align: center;">Supporting The Module</h2>
-<p style="text-align: center;"><a href="https://ko-fi.com/gambit07" target="_blank" rel="nofollow noopener"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi" /></a> <a href="https://www.patreon.com/GambitsLounge" target="_blank" rel="nofollow noopener"> <img src="https://img.shields.io/badge/Patreon-Gambits Lounge-F96854?style=for-the-badge&amp;logo=patreon" alt="Patreon Gambits Lounge" /></a> <a href="https://gambit07.github.io/fxmaster-wiki/"> <img src="https://img.shields.io/badge/FXMaster-OPEN%20WIKI-6eaef7?style=for-the-badge&logo=githubpages&logoColor=white&labelColor=7d69f2&" alt="Open the FXMaster Wiki"></a></p>
+<p style="text-align: center;"><a href="https://ko-fi.com/gambit07" target="_blank" rel="nofollow noopener"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi" /></a> <a href="https://www.patreon.com/GambitsLounge" target="_blank" rel="nofollow noopener"> <img src="https://img.shields.io/badge/Patreon-Gambits Lounge-F96854?style=for-the-badge&amp;logo=patreon" alt="Patreon Gambits Lounge" /></a> <a href="https://gambit07.github.io/fxmaster-wiki/" target="_blank"> <img src="https://img.shields.io/badge/FXMaster-OPEN%20WIKI-6eaef7?style=for-the-badge&logo=githubpages&logoColor=white&labelColor=7d69f2&" alt="Open the FXMaster Wiki"></a></p>
 <hr/>
 <p>Welcome to the official release of FXMaster V8! This release brings brand new handling for V14 Scene Levels, new Manage Layers functionality to order particle and filter effects, new macro API with improved flexibility, and more! Hope everyone enjoys!</p>
 
