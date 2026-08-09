@@ -1,5 +1,14 @@
 # Changelog
 
+## [v8.3.5] - 2026-08-09
+- Added new module setting 'Disable Grid Movement Highlighting'. This setting will disable the full grid highlighting for a tokens path in gridded mode. This setting is meant for users who want to more clearly see Token Interaction events (tokens disrupting leaves, popping bubbles, etc)
+- Updated Cloudy and Partly Cloudy presets to have an opacity of 0.5
+- Updated the Manage API Effects window to have better column spacing
+- Resolved suppression regions applying suppression to overhead levels when the 'Apply Region Behaviors to Overhead Levels' setting was turned off
+- Resolved some invalid particle naming in the Foundry default Weather Effect list
+- Resolved issue with particle or filter effects applied to multiple levels not displaying properly
+- Resolved a couple of performance bugs
+
 ## [v8.3.4] - 2026-08-02
 - Added Orbit mode to the Clouds particle effect. Should give some fun options
 - Added Token Disposition multi-select to Token Avoidance effects (Rats, Spiders, Ghosts, etc). This allows stopping rats from avoiding enemy type tokens, for example.
