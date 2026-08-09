@@ -49,3 +49,16 @@ export function displayEffectsOverVision() {
     return false;
   }
 }
+
+/**
+ * Return whether token movement grid-space highlights should be hidden.
+ *
+ * @returns {boolean}
+ */
+export function disableGridMovementHighlighting() {
+  try {
+    return globalThis.game?.settings?.get(packageId, "disableGridMovementHighlighting") === true;
+  } catch (_err) {
+    return false;
+  }
+}

@@ -6157,9 +6157,30 @@ function _preserveSurfaceGroupCacheKey(group, index) {
 }
 
 /**
+ * Return a compact signature for an ordered Level-surface operation.
+ *
+ * @param {{ levelId?: string, preserveObjects?: PIXI.DisplayObject[], preserveSurfaceGroups?: Array<object>, suppressObjects?: PIXI.DisplayObject[] }|null|undefined} operation
+ * @param {number} index
+ * @returns {string}
+ * @private
+ */
+function _surfaceOperationCacheKey(operation, index) {
+  if (!operation) return `missing-operation:${index}`;
+  const preserveObjects = Array.isArray(operation?.preserveObjects) ? operation.preserveObjects : [];
+  const preserveSurfaceGroups = Array.isArray(operation?.preserveSurfaceGroups) ? operation.preserveSurfaceGroups : [];
+  const suppressObjects = Array.isArray(operation?.suppressObjects) ? operation.suppressObjects : [];
+  return [
+    operation?.levelId ?? index,
+    preserveObjects.map((object, objectIndex) => _preserveObjectCacheKey(object, objectIndex)).join(";"),
+    preserveSurfaceGroups.map((group, groupIndex) => _preserveSurfaceGroupCacheKey(group, groupIndex)).join(";"),
+    suppressObjects.map((object, objectIndex) => _preserveObjectCacheKey(object, objectIndex)).join(";"),
+  ].join("^");
+}
+
+/**
  * Return a compact signature for a scene-suppression input entry.
  *
- * @param {{ region?: PlaceableObject, edgeFadePercent?: number, preserveObjects?: PIXI.DisplayObject[], preserveSurfaceGroups?: Array<{ levelId?: string, objects?: PIXI.DisplayObject[], regions?: object[] }>, preserveShapes?: object[], suppressObjects?: PIXI.DisplayObject[], suppressOnlyObjects?: boolean }|PlaceableObject} entry
+ * @param {{ region?: PlaceableObject, edgeFadePercent?: number, preserveObjects?: PIXI.DisplayObject[], preserveSurfaceGroups?: Array<{ levelId?: string, objects?: PIXI.DisplayObject[], regions?: object[] }>, preserveShapes?: object[], suppressObjects?: PIXI.DisplayObject[], surfaceOperations?: Array<object>, suppressOnlyObjects?: boolean }|PlaceableObject} entry
  * @returns {string}
  * @private
  */
@@ -6187,6 +6208,7 @@ function _sceneSuppressionEntryCacheKey(entry) {
   const preserveSurfaceGroups = Array.isArray(entry?.preserveSurfaceGroups) ? entry.preserveSurfaceGroups : [];
   const preserveShapes = Array.isArray(entry?.preserveShapes) ? entry.preserveShapes : [];
   const suppressObjects = Array.isArray(entry?.suppressObjects) ? entry.suppressObjects : [];
+  const surfaceOperations = Array.isArray(entry?.surfaceOperations) ? entry.surfaceOperations : [];
   return [
     region?.document?.id ?? region?.id ?? "",
     region?.document?.uuid ?? "",
@@ -6198,6 +6220,7 @@ function _sceneSuppressionEntryCacheKey(entry) {
     preserveSurfaceGroups.map((group, index) => _preserveSurfaceGroupCacheKey(group, index)).join(";"),
     preserveShapes.map((shape, index) => _preserveShapeCacheKey(shape, index)).join(";"),
     suppressObjects.map((object, index) => _preserveObjectCacheKey(object, index)).join(";"),
+    surfaceOperations.map((operation, index) => _surfaceOperationCacheKey(operation, index)).join(";"),
   ].join("|");
 }
 
@@ -6218,7 +6241,8 @@ function _sceneAllowMaskResolution(cssW, cssH, suppressionEntries) {
       (Array.isArray(entry?.preserveObjects) && entry.preserveObjects.length) ||
       (Array.isArray(entry?.preserveSurfaceGroups) && entry.preserveSurfaceGroups.length) ||
       (Array.isArray(entry?.preserveShapes) && entry.preserveShapes.length) ||
-      (Array.isArray(entry?.suppressObjects) && entry.suppressObjects.length)
+      (Array.isArray(entry?.suppressObjects) && entry.suppressObjects.length) ||
+      (Array.isArray(entry?.surfaceOperations) && entry.surfaceOperations.length)
     );
   });
 
@@ -6241,7 +6265,8 @@ function _sceneAllowMaskCacheKey({ cssW, cssH, res, stageMatrix, suppressionEntr
       (Array.isArray(entry?.preserveObjects) && entry.preserveObjects.length) ||
       (Array.isArray(entry?.preserveSurfaceGroups) && entry.preserveSurfaceGroups.length) ||
       (Array.isArray(entry?.preserveShapes) && entry.preserveShapes.length) ||
-      (Array.isArray(entry?.suppressObjects) && entry.suppressObjects.length),
+      (Array.isArray(entry?.suppressObjects) && entry.suppressObjects.length) ||
+      (Array.isArray(entry?.surfaceOperations) && entry.surfaceOperations.length),
   );
 
   let surfaceKey = "";
@@ -6457,7 +6482,8 @@ function _sceneSuppressionEntryRequiresScreenMask(entry) {
     (Array.isArray(entry?.preserveObjects) && entry.preserveObjects.length > 0) ||
     (Array.isArray(entry?.preserveSurfaceGroups) && entry.preserveSurfaceGroups.length > 0) ||
     (Array.isArray(entry?.preserveShapes) && entry.preserveShapes.length > 0) ||
-    (Array.isArray(entry?.suppressObjects) && entry.suppressObjects.length > 0)
+    (Array.isArray(entry?.suppressObjects) && entry.suppressObjects.length > 0) ||
+    (Array.isArray(entry?.surfaceOperations) && entry.surfaceOperations.length > 0)
   );
 }
 
@@ -6627,7 +6653,7 @@ function _buildSceneAllowWorldAtlasRT({ suppressionEntries = [], reuseRT = null 
  *
  * The legacy `regions` option is retained as an alias for `weatherRegions`.
  *
- * @param {{ regions?: Region[]|null, weatherRegions?: Array<Region|{ region: Region, preserveObjects?: PIXI.DisplayObject[], preserveSurfaceGroups?: Array<{ levelId?: string, objects?: PIXI.DisplayObject[], regions?: object[] }>, preserveShapes?: object[], suppressObjects?: PIXI.DisplayObject[], suppressOnlyObjects?: boolean }>|null, suppressionRegions?: Array<{ region: Region, edgeFadePercent?: number, preserveObjects?: PIXI.DisplayObject[], preserveSurfaceGroups?: Array<{ levelId?: string, objects?: PIXI.DisplayObject[], regions?: object[] }>, preserveShapes?: object[], suppressObjects?: PIXI.DisplayObject[], suppressOnlyObjects?: boolean }>, reuseRT?: PIXI.RenderTexture|null }} [opts]
+ * @param {{ regions?: Region[]|null, weatherRegions?: Array<Region|{ region: Region, preserveObjects?: PIXI.DisplayObject[], preserveSurfaceGroups?: Array<{ levelId?: string, objects?: PIXI.DisplayObject[], regions?: object[] }>, preserveShapes?: object[], suppressObjects?: PIXI.DisplayObject[], surfaceOperations?: Array<object>, suppressOnlyObjects?: boolean }>|null, suppressionRegions?: Array<{ region: Region, edgeFadePercent?: number, preserveObjects?: PIXI.DisplayObject[], preserveSurfaceGroups?: Array<{ levelId?: string, objects?: PIXI.DisplayObject[], regions?: object[] }>, preserveShapes?: object[], suppressObjects?: PIXI.DisplayObject[], surfaceOperations?: Array<object>, suppressOnlyObjects?: boolean }>, reuseRT?: PIXI.RenderTexture|null }} [opts]
  * @returns {PIXI.RenderTexture|null}
  */
 export function buildSceneAllowMaskRT({
@@ -6752,6 +6778,29 @@ export function buildSceneAllowMaskRT({
       const preserveShapes = Array.isArray(entry?.preserveShapes) ? entry.preserveShapes.filter(Boolean) : [];
       if (!suppressOnlyObjects && preserveShapes.length)
         _restorePreservedShapesIntoSceneAllowMask(rt, region, M, preserveShapes, spec);
+
+      const surfaceOperations = Array.isArray(entry?.surfaceOperations) ? entry.surfaceOperations.filter(Boolean) : [];
+      if (!suppressOnlyObjects && surfaceOperations.length) {
+        for (const operation of surfaceOperations) {
+          const operationPreserveObjects = Array.isArray(operation?.preserveObjects)
+            ? operation.preserveObjects.filter(Boolean)
+            : [];
+          if (operationPreserveObjects.length)
+            _restorePreservedOverlayObjectsIntoSceneAllowMask(rt, region, M, operationPreserveObjects, spec);
+
+          const operationPreserveSurfaceGroups = Array.isArray(operation?.preserveSurfaceGroups)
+            ? operation.preserveSurfaceGroups.filter(Boolean)
+            : [];
+          if (operationPreserveSurfaceGroups.length)
+            _restorePreservedSurfaceGroupsIntoSceneAllowMask(rt, region, M, operationPreserveSurfaceGroups, spec);
+
+          const operationSuppressObjects = Array.isArray(operation?.suppressObjects)
+            ? operation.suppressObjects.filter(Boolean)
+            : [];
+          if (operationSuppressObjects.length)
+            _eraseSuppressedOverlayObjectsFromSceneAllowMask(rt, region, M, operationSuppressObjects, spec);
+        }
+      }
 
       const suppressObjects = Array.isArray(entry?.suppressObjects) ? entry.suppressObjects.filter(Boolean) : [];
       if (suppressObjects.length)

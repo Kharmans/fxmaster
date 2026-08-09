@@ -48,6 +48,7 @@ import {
   computeRegionGatePass,
   getRegionParticleEffectDefinitions,
   installTileRefreshStateGuard,
+  installTokenRulerGridHighlightGuard,
 } from "./utils.js";
 import { FXMasterBaseFormV2 } from "./base-form.js";
 import {
@@ -132,6 +133,7 @@ CONFIG.fxmaster.smoothDirectionBlend = smoothDirectionBlend;
 CONFIG.fxmaster.GlobalEffectsCompositor = GlobalEffectsCompositor;
 CONFIG.fxmaster.SpecialEffectsLayer = SpecialEffectsLayer;
 CONFIG.fxmaster.getGlobalEffectsCompositor = () => GlobalEffectsCompositor.instance;
+CONFIG.fxmaster.resolveWeatherEffectConfigLabel = resolveWeatherEffectConfigLabel;
 CONFIG.fxmaster.overheadPerformance = {
   ...(CONFIG.fxmaster.overheadPerformance ?? {}),
   sceneSuppressionLevelIntersection: true,
@@ -256,9 +258,34 @@ function registerLayers() {
   CONFIG.Canvas.layers.fxstack = { layerClass: GlobalEffectsStackLayer, group: "rendered" };
 }
 
+/**
+ * Resolve the label used by the Scene weather selector.
+ *
+ * @param {typeof FXMasterParticleEffect|null|undefined} effectClass
+ * @param {string} [fallbackLabel=""]
+ * @returns {string}
+ */
+function resolveWeatherEffectConfigLabel(effectClass, fallbackLabel = "") {
+  const explicit = effectClass?.weatherEffectLabel ?? effectClass?.weatherLabel ?? null;
+  const rawLabel = String(explicit ?? effectClass?.label ?? fallbackLabel ?? "").trim();
+  if (!rawLabel) return "FXMaster";
+
+  const weatherLabel = rawLabel.endsWith("WeatherEffectsConfig") ? rawLabel : `${rawLabel}WeatherEffectsConfig`;
+  if (rawLabel.startsWith("FXMASTER.")) return weatherLabel;
+
+  const i18n = globalThis.game?.i18n ?? null;
+  if (i18n?.has?.(weatherLabel)) return weatherLabel;
+
+  const localized = i18n?.has?.(rawLabel) ? i18n.localize(rawLabel) : rawLabel;
+  return /\(FXMaster\)\s*$/i.test(localized) ? localized : `${localized} (FXMaster)`;
+}
+
 Hooks.once("init", function () {
   installTileRefreshStateGuard();
   registerSettings();
+  installTokenRulerGridHighlightGuard();
+  Hooks.once("ready", installTokenRulerGridHighlightGuard);
+  Hooks.on("canvasReady", installTokenRulerGridHighlightGuard);
   registerHooks();
   registerLayers();
   registerParticleBackgroundQueries();
@@ -279,7 +306,7 @@ Hooks.once("init", function () {
       `fxmaster.${id}`,
       {
         id: `fxmaster.${id}`,
-        label: `${effectClass.label}WeatherEffectsConfig`,
+        label: resolveWeatherEffectConfigLabel(effectClass),
         effects: [{ id: `${id}Particles`, effectClass }],
       },
     ]),

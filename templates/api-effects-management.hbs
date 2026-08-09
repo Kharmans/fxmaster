@@ -25,32 +25,34 @@
 
         <div class="fxmaster-api-effects-source" title="{{ef.sourceLabel}}">{{ef.sourceLabel}}</div>
 
-        <div class="fxmaster-api-effects-name" title="{{ef.sourceName}}">{{ef.sourceName}}</div>
+        <div class="fxmaster-api-effects-name" title="{{ef.nameLabel}}">{{ef.nameLabel}}</div>
 
-        <button
-          type="button"
-          class="fxmaster-api-effects-edit"
-          data-action="editApiEffect"
-          data-kind="{{ef.kind}}"
-          data-id="{{ef.id}}"
-          data-uid="{{ef.uid}}"
-          data-tooltip="{{ef.editTooltip}}"
-          {{#unless ef.canEdit}}disabled{{/unless}}
-        >
-          <i class="fas fa-pen"></i>
-        </button>
+        <div class="fxmaster-api-effects-actions">
+          <button
+            type="button"
+            class="fxmaster-api-effects-edit"
+            data-action="editApiEffect"
+            data-kind="{{ef.kind}}"
+            data-id="{{ef.id}}"
+            data-uid="{{ef.uid}}"
+            data-tooltip="{{ef.editTooltip}}"
+            {{#unless ef.canEdit}}disabled{{/unless}}
+          >
+            <i class="fas fa-pen"></i>
+          </button>
 
-        <button
-          type="button"
-          class="fxmaster-api-effects-delete"
-          data-action="deleteApiEffect"
-          data-kind="{{ef.kind}}"
-          data-id="{{ef.id}}"
-          data-uid="{{ef.uid}}"
-          data-tooltip="{{localize 'FXMASTER.Common.ApiEffectsDelete'}}"
-        >
-          <i class="fas fa-trash"></i>
-        </button>
+          <button
+            type="button"
+            class="fxmaster-api-effects-delete"
+            data-action="deleteApiEffect"
+            data-kind="{{ef.kind}}"
+            data-id="{{ef.id}}"
+            data-uid="{{ef.uid}}"
+            data-tooltip="{{localize 'FXMASTER.Common.ApiEffectsDelete'}}"
+          >
+            <i class="fas fa-trash"></i>
+          </button>
+        </div>
 
         <span class="fxmaster-collapse-arrow">
           <i class="fa-solid fa-chevron-down"></i>

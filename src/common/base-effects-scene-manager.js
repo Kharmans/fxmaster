@@ -317,20 +317,14 @@ function getSuppressionAllowedLevelIds(document, fallbackLevel = null) {
   if (levels?.size) {
     const allowOverhead = applyRegionBehaviorsToOverheadLevels();
     const currentLevelId = String(currentLevel?.id ?? "");
-    const currentLevelIsAssigned = !!currentLevelId && levels.has(currentLevelId);
+
+    if (currentLevelId && levels.has(currentLevelId)) ids.add(currentLevelId);
+    if (!allowOverhead || !currentLevel) return ids;
+
     for (const levelId of levels) {
+      if (levelId === currentLevelId) continue;
       const level = getSceneLevelById(levelId, document?.parent ?? canvas?.scene ?? null);
-      if (!level) continue;
-
-      /**
-       * Explicit assignment to the viewed Level protects every explicit Level assignment from the optional overhead projection setting. The setting applies only when the viewed Level is unassigned.
-       */
-      if (currentLevelIsAssigned) {
-        ids.add(levelId);
-        continue;
-      }
-
-      if (allowOverhead && currentLevel && levelIsAboveTargetLevel(level, currentLevel)) ids.add(levelId);
+      if (level && levelIsAboveTargetLevel(level, currentLevel)) ids.add(levelId);
     }
     return ids;
   }
@@ -1788,7 +1782,7 @@ function buildDynamicSuppressionPreservationSignature(regions, kinds = ["particl
 
     const protectedLevelIds = getSuppressionAllowedLevelIds(doc, targetLevel);
     const preservation = collectVisibleOtherLevelTokenPreservationForTargetLevel(targetLevel, {
-      assignedLevelIds: regionLevelIds,
+      assignedLevelIds: protectedLevelIds,
       protectedLevelIds,
       context,
     });
@@ -1851,6 +1845,10 @@ function mergeDisplayObjectLists(...lists) {
  * @private
  */
 function resolveLiveSurfaceDisplayObject(primaryObject, linkedObject) {
+  if (fxmIsCanvasLevelTexture(primaryObject)) {
+    return fxmPrimaryCanvasObjectIsLive(primaryObject) ? primaryObject : null;
+  }
+
   for (const object of [
     linkedObject?.mesh ?? null,
     linkedObject?.primaryMesh ?? null,
@@ -2091,8 +2089,9 @@ function getSuppressionSurfaceObjectLevelId(object) {
   if (!object) return null;
 
   const linkedObject = fxmLinkedPlaceableFromDisplayObject(object) ?? object?.object ?? null;
+  const directDocument = object?.documentName ? object : null;
   const document =
-    object?.level?.document ?? object?.level ?? linkedObject?.document ?? object?.document ?? linkedObject ?? null;
+    object?.level?.document ?? object?.level ?? linkedObject?.document ?? directDocument ?? linkedObject ?? null;
   const level = object?.level ?? linkedObject?.level ?? document?.level ?? null;
   const elevation = Number(
     object?.elevation ?? document?.elevation?.bottom ?? document?.elevation ?? linkedObject?.elevation ?? Number.NaN,
@@ -2109,27 +2108,50 @@ function getSuppressionSurfaceObjectLevelId(object) {
 }
 
 /**
- * Return public Define Surface Regions that describe a Level texture's footprint in the viewed Level.
+ * Resolve the highest suppression target Level below an upper surface.
  *
- * Foundry's CanvasOcclusionMask alpha only describes live reveal apertures. It does not describe the full footprint of an opaque overhead floor. The RegionSurface geometry returned by Scene#getSurfaces is therefore required as a second clip before a full-canvas Level texture may restore particles.
+ * @param {string|null|undefined} surfaceLevelId
+ * @param {any|null|undefined} targetLevel
+ * @param {Set<string>|null|undefined} protectedLevelIds
+ * @returns {string|null}
+ * @private
+ */
+function getSuppressionSurfaceIncludedLevelId(surfaceLevelId, targetLevel, protectedLevelIds) {
+  const surfaceLevel = getSceneLevelById(surfaceLevelId);
+  const candidates = [targetLevel];
+  for (const levelId of protectedLevelIds ?? []) candidates.push(getSceneLevelById(levelId));
+
+  let includedLevel = null;
+  for (const candidate of candidates) {
+    if (!candidate || candidate?.id === surfaceLevel?.id) continue;
+    if (surfaceLevel && !levelIsAboveTargetLevel(surfaceLevel, candidate)) continue;
+    if (!includedLevel || levelIsAboveTargetLevel(candidate, includedLevel)) includedLevel = candidate;
+  }
+
+  return String(fxmDocumentId(includedLevel ?? targetLevel ?? getCanvasLevel()) ?? "") || null;
+}
+
+/**
+ * Return public Define Surface Regions that describe a Level texture's footprint from a lower Level.
  *
  * @param {string|null|undefined} levelId
  * @param {object|null} [context]
+ * @param {string|null|undefined} [includedLevelId]
  * @returns {object[]}
  * @private
  */
-function getSuppressionSurfaceFootprintRegionsForLevel(levelId, context = null) {
+function getSuppressionSurfaceFootprintRegionsForLevel(levelId, context = null, includedLevelId = null) {
   const normalizedLevelId = String(levelId ?? "");
-  const currentLevelId = String(fxmDocumentId(getCanvasLevel()) ?? "");
-  if (!normalizedLevelId || !currentLevelId) return [];
+  const normalizedIncludedLevelId = String(includedLevelId ?? fxmDocumentId(getCanvasLevel()) ?? "");
+  if (!normalizedLevelId || !normalizedIncludedLevelId) return [];
 
-  const cacheKey = `${currentLevelId}:${normalizedLevelId}`;
+  const cacheKey = `${normalizedIncludedLevelId}:${normalizedLevelId}`;
   const cache = context?.definedSurfaceFootprintRegionsByLevelKey ?? null;
   if (cache?.has(cacheKey)) return cache.get(cacheKey) ?? [];
 
   const regions = getDefinedSurfaceFootprintRegionsForLevel(normalizedLevelId, {
     scene: canvas?.scene ?? null,
-    includedLevel: currentLevelId,
+    includedLevel: normalizedIncludedLevelId,
     requireOcclusion: true,
     allowExposure: false,
     allowWindowFallback: false,
@@ -2189,7 +2211,8 @@ function collectUpperSurfacePreservationForTargetLevel(
      */
     const levelId = getSuppressionSurfaceObjectLevelId(object);
     if (!levelId) continue;
-    const regions = getSuppressionSurfaceFootprintRegionsForLevel(levelId, context);
+    const includedLevelId = getSuppressionSurfaceIncludedLevelId(levelId, targetLevel, protectedLevelIds);
+    const regions = getSuppressionSurfaceFootprintRegionsForLevel(levelId, context, includedLevelId);
     if (!regions.length) continue;
 
     let group = preserveSurfaceGroupsByLevel.get(levelId);
@@ -2209,9 +2232,9 @@ function collectUpperSurfacePreservationForTargetLevel(
 }
 
 /**
- * Collect visible upper-level surfaces that belong to Levels which should remain suppressed after unassigned intermediate overlays are restored.
+ * Collect visible upper-Level surfaces that belong to active suppression Levels.
  *
- * The upper-Level preservation path erases a Region before restoring visible unassigned upper overlays. For non-contiguous assignments such as Levels 1 and 3, restoring the intermediate Level 2 overlay can re-allow the final Level 3 pixel in the screen-space allow mask. The cached upper-surface collection limits the result to protected upper objects that require a second erase after restoration.
+ * These objects participate in Level-ordered mask composition when assigned and unassigned upper surfaces overlap.
  *
  * @param {any|null|undefined} targetLevel
  * @param {{ protectedLevelIds?: Set<string>|null, preserveObjects?: PIXI.DisplayObject[]|null, preserveSurfaceGroups?: Array<{ objects?: PIXI.DisplayObject[] }>|null, context?: object|null }} [options]
@@ -2266,6 +2289,92 @@ function collectSuppressedUpperSurfaceObjectsForTargetLevel(
 
   const suppressed = allUpperObjects.filter((object) => object && !preservedSet.has(object));
   return remember(suppressed);
+}
+
+/**
+ * Order overlapping upper-Level preservation and suppression by Level elevation.
+ *
+ * @param {{ preserveObjects?: PIXI.DisplayObject[], preserveSurfaceGroups?: Array<{ levelId?: string, objects?: PIXI.DisplayObject[], regions?: object[] }>, suppressObjects?: PIXI.DisplayObject[] }} [options]
+ * @returns {{ surfaceOperations: Array<{ levelId: string, preserveObjects: PIXI.DisplayObject[], preserveSurfaceGroups: Array<object>, suppressObjects: PIXI.DisplayObject[] }>, preserveObjects: PIXI.DisplayObject[], preserveSurfaceGroups: Array<object>, suppressObjects: PIXI.DisplayObject[] }}
+ * @private
+ */
+function orderSuppressionSurfaceOperations({
+  preserveObjects = [],
+  preserveSurfaceGroups = [],
+  suppressObjects = [],
+} = {}) {
+  const byLevel = new Map();
+  const remainingPreserveObjects = [];
+  const remainingPreserveSurfaceGroups = [];
+  const remainingSuppressObjects = [];
+
+  const getOperation = (levelId) => {
+    const id = String(levelId ?? "").trim();
+    if (!id) return null;
+    let operation = byLevel.get(id);
+    if (!operation) {
+      operation = { levelId: id, preserveObjects: [], preserveSurfaceGroups: [], suppressObjects: [] };
+      byLevel.set(id, operation);
+    }
+    return operation;
+  };
+
+  for (const object of preserveObjects ?? []) {
+    const operation = getOperation(getSuppressionSurfaceObjectLevelId(object));
+    if (operation) operation.preserveObjects.push(object);
+    else if (object) remainingPreserveObjects.push(object);
+  }
+
+  for (const group of preserveSurfaceGroups ?? []) {
+    const operation = getOperation(group?.levelId);
+    if (operation) operation.preserveSurfaceGroups.push(group);
+    else if (group) remainingPreserveSurfaceGroups.push(group);
+  }
+
+  for (const object of suppressObjects ?? []) {
+    const operation = getOperation(getSuppressionSurfaceObjectLevelId(object));
+    if (operation) operation.suppressObjects.push(object);
+    else if (object) remainingSuppressObjects.push(object);
+  }
+
+  const operations = Array.from(byLevel.values());
+  const hasPreservation = operations.some(
+    (operation) => operation.preserveObjects.length || operation.preserveSurfaceGroups.length,
+  );
+  const hasSuppression = operations.some((operation) => operation.suppressObjects.length);
+  if (!hasPreservation || !hasSuppression) {
+    return {
+      surfaceOperations: [],
+      preserveObjects,
+      preserveSurfaceGroups,
+      suppressObjects,
+    };
+  }
+
+  const sceneLevels = getSceneLevels();
+  const levelOrder = new Map(sceneLevels.map((level, index) => [String(fxmDocumentId(level) ?? ""), index]));
+  operations.sort((a, b) => {
+    const levelA = getSceneLevelById(a.levelId);
+    const levelB = getSceneLevelById(b.levelId);
+    const bottomA = getLevelBottom(levelA);
+    const bottomB = getLevelBottom(levelB);
+    if (Number.isFinite(bottomA) && Number.isFinite(bottomB) && Math.abs(bottomA - bottomB) > 1e-4)
+      return bottomA - bottomB;
+
+    const topA = getLevelTop(levelA);
+    const topB = getLevelTop(levelB);
+    if (Number.isFinite(topA) && Number.isFinite(topB) && Math.abs(topA - topB) > 1e-4) return topA - topB;
+    return (
+      (levelOrder.get(a.levelId) ?? Number.MAX_SAFE_INTEGER) - (levelOrder.get(b.levelId) ?? Number.MAX_SAFE_INTEGER)
+    );
+  });
+
+  return {
+    surfaceOperations: operations,
+    preserveObjects: remainingPreserveObjects,
+    preserveSurfaceGroups: remainingPreserveSurfaceGroups,
+    suppressObjects: remainingSuppressObjects,
+  };
 }
 
 /**
@@ -2376,7 +2485,7 @@ function createSuppressionInputBucket() {
  * Build a shared suppression descriptor.
  *
  * @param {PlaceableObject} region
- * @param {{ edgeFadePercent?: number|null, suppressOnlyObjects?: boolean, preserveObjects?: PIXI.DisplayObject[], preserveShapes?: object[], suppressObjects?: PIXI.DisplayObject[] }} [options]
+ * @param {{ edgeFadePercent?: number|null, suppressOnlyObjects?: boolean, preserveObjects?: PIXI.DisplayObject[], preserveSurfaceGroups?: Array<object>, preserveShapes?: object[], suppressObjects?: PIXI.DisplayObject[], surfaceOperations?: Array<object> }} [options]
  * @returns {object}
  * @private
  */
@@ -2389,6 +2498,7 @@ function buildSuppressionDescriptor(
     preserveSurfaceGroups = [],
     preserveShapes = [],
     suppressObjects = [],
+    surfaceOperations = [],
   } = {},
 ) {
   const descriptor = edgeFadePercent == null ? { region } : { region, edgeFadePercent };
@@ -2397,6 +2507,7 @@ function buildSuppressionDescriptor(
   if (preserveSurfaceGroups?.length) descriptor.preserveSurfaceGroups = preserveSurfaceGroups;
   if (preserveShapes?.length) descriptor.preserveShapes = preserveShapes;
   if (suppressObjects?.length) descriptor.suppressObjects = suppressObjects;
+  if (surfaceOperations?.length) descriptor.surfaceOperations = surfaceOperations;
   return descriptor;
 }
 
@@ -2421,7 +2532,7 @@ function getMaxSuppressionEdgeFadePercent(behaviors) {
  *
  * @param {PlaceableObject} region
  * @param {object|null} [context]
- * @returns {{ suppressOnlyObjects: boolean, preserveObjects: PIXI.DisplayObject[], preserveSurfaceGroups: Array<{ levelId: string, objects: PIXI.DisplayObject[], regions: object[] }>, preserveShapes: object[], suppressObjects: PIXI.DisplayObject[] }}
+ * @returns {{ suppressOnlyObjects: boolean, preserveObjects: PIXI.DisplayObject[], preserveSurfaceGroups: Array<{ levelId: string, objects: PIXI.DisplayObject[], regions: object[] }>, preserveShapes: object[], suppressObjects: PIXI.DisplayObject[], surfaceOperations: Array<object> }}
  * @private
  */
 function buildSuppressionDescriptorSharedOptions(region, context = null) {
@@ -2433,6 +2544,7 @@ function buildSuppressionDescriptorSharedOptions(region, context = null) {
       preserveSurfaceGroups: [],
       preserveShapes: [],
       suppressObjects: [],
+      surfaceOperations: [],
     };
 
   const regionLevelIds = getDocumentAssignedLevelIds(doc, doc?.parent ?? canvas?.scene ?? null);
@@ -2497,29 +2609,47 @@ function buildSuppressionDescriptorSharedOptions(region, context = null) {
   const otherLevelTokenPreservation =
     !suppressOnlyObjects && targetLevel && regionLevelIds?.size
       ? collectVisibleOtherLevelTokenPreservationForTargetLevel(targetLevel, {
-          assignedLevelIds: regionLevelIds,
+          assignedLevelIds: protectedLevelIds,
           protectedLevelIds,
           context,
         })
       : { objects: [], shapes: [] };
-  const preserveObjects = mergeDisplayObjectLists(
-    upperPreservation.preserveObjects,
-    otherLevelTokenPreservation.objects,
-  );
-  const preserveSurfaceGroups = upperPreservation.preserveSurfaceGroups ?? [];
+  const upperPreserveObjects = upperPreservation.preserveObjects ?? [];
+  const upperPreserveSurfaceGroups = upperPreservation.preserveSurfaceGroups ?? [];
+  const combinedPreserveObjects = mergeDisplayObjectLists(upperPreserveObjects, otherLevelTokenPreservation.objects);
   const preserveShapes = otherLevelTokenPreservation.shapes ?? [];
-  const suppressObjects = suppressOnlyObjects
+  const rawSuppressObjects = suppressOnlyObjects
     ? objectOnlySuppressObjects
     : targetLevel
     ? collectSuppressedUpperSurfaceObjectsForTargetLevel(targetLevel, {
         protectedLevelIds,
-        preserveObjects,
-        preserveSurfaceGroups,
+        preserveObjects: combinedPreserveObjects,
+        preserveSurfaceGroups: upperPreserveSurfaceGroups,
         context,
       })
     : [];
+  const orderedSurfaces = suppressOnlyObjects
+    ? {
+        surfaceOperations: [],
+        preserveObjects: upperPreserveObjects,
+        preserveSurfaceGroups: upperPreserveSurfaceGroups,
+        suppressObjects: rawSuppressObjects,
+      }
+    : orderSuppressionSurfaceOperations({
+        preserveObjects: upperPreserveObjects,
+        preserveSurfaceGroups: upperPreserveSurfaceGroups,
+        suppressObjects: rawSuppressObjects,
+      });
+  const preserveObjects = mergeDisplayObjectLists(orderedSurfaces.preserveObjects, otherLevelTokenPreservation.objects);
 
-  return { suppressOnlyObjects, preserveObjects, preserveSurfaceGroups, preserveShapes, suppressObjects };
+  return {
+    suppressOnlyObjects,
+    preserveObjects,
+    preserveSurfaceGroups: orderedSurfaces.preserveSurfaceGroups,
+    preserveShapes,
+    suppressObjects: orderedSurfaces.suppressObjects,
+    surfaceOperations: orderedSurfaces.surfaceOperations,
+  };
 }
 
 /**
@@ -2566,8 +2696,14 @@ function collectSuppressionInputsForKinds(regions, kinds = ["particles", "filter
 
     const sharedOptions = buildSuppressionDescriptorSharedOptions(region, context);
     if (!sharedOptions) continue;
-    const { suppressOnlyObjects, preserveObjects, preserveSurfaceGroups, preserveShapes, suppressObjects } =
-      sharedOptions;
+    const {
+      suppressOnlyObjects,
+      preserveObjects,
+      preserveSurfaceGroups,
+      preserveShapes,
+      suppressObjects,
+      surfaceOperations,
+    } = sharedOptions;
 
     if (weatherPasses) {
       const descriptor = buildSuppressionDescriptor(region, {
@@ -2576,6 +2712,7 @@ function collectSuppressionInputsForKinds(regions, kinds = ["particles", "filter
         preserveSurfaceGroups,
         preserveShapes,
         suppressObjects,
+        surfaceOperations,
       });
       if (wantsParticles) particles.weatherRegions.push(descriptor);
       if (wantsFilters) filters.weatherRegions.push(descriptor);
@@ -2592,6 +2729,7 @@ function collectSuppressionInputsForKinds(regions, kinds = ["particles", "filter
           preserveSurfaceGroups,
           preserveShapes,
           suppressObjects,
+          surfaceOperations,
         }),
       );
     }
@@ -2607,6 +2745,7 @@ function collectSuppressionInputsForKinds(regions, kinds = ["particles", "filter
           preserveSurfaceGroups,
           preserveShapes,
           suppressObjects,
+          surfaceOperations,
         }),
       );
     }
@@ -4174,7 +4313,10 @@ export class SceneMaskManager {
 
       const regionLevels = getDocumentAssignedLevelIds(doc, doc?.parent ?? canvas?.scene ?? null);
       if (!regionLevels?.size) return true;
-      for (const levelId of regionLevels) {
+
+      const targetLevel = resolveSuppressionRegionTargetLevel(doc);
+      const allowedLevelIds = getSuppressionAllowedLevelIds(doc, targetLevel);
+      for (const levelId of allowedLevelIds) {
         if (selected.has(String(levelId))) return true;
       }
     }

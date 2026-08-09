@@ -69,3 +69,8 @@
   background-color: var(--color-warm-2);
   border-color: var(--color-warm-3);
 }
+
+.fxmaster-filter-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

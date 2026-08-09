@@ -2,6 +2,7 @@ import { packageId } from "./constants.js";
 import { invalidateEffectStackCache } from "./common/effect-stack.js";
 import { fxmDocumentId } from "./utils/foundry-public.js";
 import { logger } from "./logger.js";
+import { clearTokenRulerGridHighlights } from "./utils/compat.js";
 
 const LEGACY_CLEANUP_VERSION = 1;
 
@@ -41,6 +42,19 @@ export function registerSettings() {
     type: Boolean,
     config: true,
     requiresReload: false,
+  });
+
+  game.settings.register(packageId, "disableGridMovementHighlighting", {
+    name: "FXMASTER.Settings.DisableGridMovementHighlighting",
+    hint: "FXMASTER.Settings.DisableGridMovementHighlightingHint",
+    default: false,
+    scope: "world",
+    type: Boolean,
+    config: true,
+    requiresReload: false,
+    onChange: (enabled) => {
+      if (enabled) clearTokenRulerGridHighlights();
+    },
   });
 
   game.settings.register(packageId, "tooltipDirection", {
@@ -184,6 +198,7 @@ export function registerSettings() {
 export {
   applyRegionBehaviorsToOverheadLevels,
   compositeGridInFxStack,
+  disableGridMovementHighlighting,
   displayEffectsOverVision,
   isEnabled,
 } from "./settings-access.js";

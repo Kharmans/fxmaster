@@ -6,11 +6,12 @@
 
 import { ALL_LEVELS_SELECTION, packageId } from "../constants.js";
 import { logger } from "../logger.js";
-import { applyRegionBehaviorsToOverheadLevels } from "../settings-access.js";
+import { applyRegionBehaviorsToOverheadLevels, disableGridMovementHighlighting } from "../settings-access.js";
 import {
   fxmCollectionValues,
   fxmGetPrimaryLevelTextureMeshes,
   fxmGetPrimaryTileMeshes,
+  fxmIsCanvasLevelTexture,
   fxmPrimaryCanvasObjectIsLive,
   fxmGetDocumentElevationWindow,
   fxmGetDocumentLevelIds,
@@ -225,6 +226,55 @@ export function installTileRefreshStateGuard() {
   return true;
 }
 
+let tokenRulerGridHighlightGuardClass = null;
+
+/**
+ * Clear active token movement grid-space highlights.
+ *
+ * @returns {void}
+ */
+export function clearTokenRulerGridHighlights() {
+  const grid = globalThis.canvas?.interface?.grid ?? null;
+  if (!grid) return;
+
+  for (const name of Object.keys(grid.highlightLayers ?? {})) {
+    if (!String(name).startsWith("TokenRuler.")) continue;
+    try {
+      grid.clearHighlightLayer?.(name);
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+    }
+  }
+}
+
+/**
+ * Install the token movement grid-highlight visibility guard.
+ *
+ * @returns {boolean}
+ */
+export function installTokenRulerGridHighlightGuard() {
+  const RulerClass = globalThis.CONFIG?.Token?.rulerClass ?? null;
+  const proto = RulerClass?.prototype ?? null;
+  const original = proto?._getGridHighlightStyle;
+  if (typeof original !== "function") return false;
+  if (tokenRulerGridHighlightGuardClass === RulerClass && original.__fxmasterGridHighlightGuard === true) return true;
+  if (original.__fxmasterGridHighlightGuard === true) {
+    tokenRulerGridHighlightGuardClass = RulerClass;
+    return true;
+  }
+
+  const guardedStyle = function fxmasterTokenRulerGridHighlightStyle(...args) {
+    if (disableGridMovementHighlighting()) return { alpha: 0 };
+    return original.apply(this, args);
+  };
+
+  guardedStyle.__fxmasterGridHighlightGuard = true;
+  guardedStyle.__fxmasterOriginalGridHighlightStyle = original;
+  proto._getGridHighlightStyle = guardedStyle;
+  tokenRulerGridHighlightGuardClass = RulerClass;
+  return true;
+}
+
 /**
  * Get a V14+ ForcedReplacement operator for a replacement value.
  *
@@ -402,6 +452,10 @@ function _fxmDisplayObjectContributesVisiblePixels(object) {
  * @private
  */
 function _fxmResolveLiveSurfaceDisplayObject(primaryObject, linkedObject) {
+  if (fxmIsCanvasLevelTexture(primaryObject)) {
+    return fxmPrimaryCanvasObjectIsLive(primaryObject) ? primaryObject : null;
+  }
+
   for (const object of [
     linkedObject?.mesh ?? null,
     linkedObject?.primaryMesh ?? null,

@@ -25,6 +25,14 @@ function parameterNameFromInputName(inputName, filterDB) {
   return null;
 }
 
+function refreshFilterEffectControls(effectDef) {
+  try {
+    effectDef?.refreshManualPlacementControl?.();
+  } catch (err) {
+    logger.debug("FXMaster:", err);
+  }
+}
+
 export class FilterEffectsManagement extends FXMasterBaseFormV2 {
   static FXMASTER_DETACHED_WINDOW_FIT = true;
   static FXMASTER_POSITION_FLAG = "dialog-position-filtereffects";
@@ -255,6 +263,7 @@ export class FilterEffectsManagement extends FXMasterBaseFormV2 {
       onReset: this.resetEffectDefaults,
     });
     this.applyTooltipDirection(liveElement);
+    for (const effectDef of Object.values(CONFIG.fxmaster.filterEffects ?? {})) refreshFilterEffectControls(effectDef);
   }
 
   /**
@@ -336,6 +345,7 @@ export class FilterEffectsManagement extends FXMasterBaseFormV2 {
       return;
     }
 
+    refreshFilterEffectControls(filtersDB);
     const scene = canvas.scene;
     if (!scene) return;
     const current = foundry.utils.duplicate(scene.getFlag(packageId, "filters") ?? {});
@@ -378,6 +388,7 @@ export class FilterEffectsManagement extends FXMasterBaseFormV2 {
     FXMasterBaseFormV2.refreshSynchronizedDirectionControls(parameterSection, filterDB, {
       synchronizedDirection: syncValue,
     });
+    refreshFilterEffectControls(filterDB);
 
     const scene = canvas.scene;
     if (!scene) return;

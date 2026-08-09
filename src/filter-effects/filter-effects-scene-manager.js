@@ -781,21 +781,16 @@ export class FilterEffectsSceneManager {
       : false;
     const needsMasking = (hasRelevantSuppression && !compositorHandlesSuppression) || anyBelowTokens || anyBelowTiles;
     const maskingChanged = !!needsMasking !== (this._lastSceneSuppressionNeedsMasking === true);
-    /** Foundry's primary/perception tickers run before this low-priority FXMaster ticker. */
-    const overlayState =
-      hasRelevantSuppression && !compositorHandlesSuppression
-        ? getCanvasLiveLevelSurfaceState(canvas?.scene ?? null, {
-            presynced: true,
-            includeTransientFades: false,
-          })
-        : null;
-    const overlaySignature = overlayState?.key ?? "";
-    const overlayChanged =
-      hasRelevantSuppression &&
-      !compositorHandlesSuppression &&
-      overlaySignature !== this._lastSuppressionOverlaySignature;
-
     const worldAtlasMasks = SceneMaskManager.instance.usesWorldAtlas?.("filters") === true;
+    const tracksLiveSurfaceState = hasRelevantSuppression && !compositorHandlesSuppression && !worldAtlasMasks;
+    const overlayState = tracksLiveSurfaceState
+      ? getCanvasLiveLevelSurfaceState(canvas?.scene ?? null, {
+          presynced: true,
+          includeTransientFades: false,
+        })
+      : null;
+    const overlaySignature = overlayState?.key ?? "";
+    const overlayChanged = tracksLiveSurfaceState && overlaySignature !== this._lastSuppressionOverlaySignature;
     if (needsMasking && (changed || overlayChanged || maskingChanged)) {
       if (changed && worldAtlasMasks && !overlayChanged && !maskingChanged) {
         this.#bindSuppressMaskUniforms({ presyncedLiveLevelState: true });
@@ -811,7 +806,7 @@ export class FilterEffectsSceneManager {
     }
 
     this._lastSceneSuppressionNeedsMasking = !!needsMasking;
-    this._lastSuppressionOverlaySignature = overlaySignature;
+    this._lastSuppressionOverlaySignature = tracksLiveSurfaceState ? overlaySignature : "";
 
     try {
       if (!anyBelowTokens && !anyBelowTiles) {

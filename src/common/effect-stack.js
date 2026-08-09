@@ -18,6 +18,7 @@ const LEGACY_SOURCE_ORDER = {
 };
 
 const API_PRESET_EFFECT_ID_PREFIX = "apiPreset_";
+const API_PRESET_EFFECT_ID_PATTERN = /^apiPreset_(.+)_(?:p|f)\d+$/;
 const API_MACRO_EFFECT_ID_PREFIX = "apiMacro_";
 
 let _effectStackCacheGeneration = 0;
@@ -69,7 +70,7 @@ export function isCoreSceneEffectId(effectId) {
  * Resolve a scene-scoped effect id into the source bucket used by stack/API management UIs.
  *
  * @param {string} effectId
- * @returns {{source: "scene"|"api", apiSource: "preset"|"macro"|"generic"|null, sourceLabel: string}}
+ * @returns {{source: "scene"|"api", apiSource: "preset"|"macro"|"generic"|null, sourceLabel: string, apiPresetName: string|null}}
  */
 export function getSceneEffectSourceInfo(effectId) {
   const id = String(effectId ?? "");
@@ -78,6 +79,7 @@ export function getSceneEffectSourceInfo(effectId) {
       source: "scene",
       apiSource: null,
       sourceLabel: game.i18n.localize("FXMASTER.Layers.SourceScene"),
+      apiPresetName: null,
     };
   }
 
@@ -86,6 +88,7 @@ export function getSceneEffectSourceInfo(effectId) {
       source: "api",
       apiSource: "preset",
       sourceLabel: game.i18n.localize("FXMASTER.Layers.SourceApiPreset"),
+      apiPresetName: API_PRESET_EFFECT_ID_PATTERN.exec(id)?.[1] ?? null,
     };
   }
 
@@ -94,6 +97,7 @@ export function getSceneEffectSourceInfo(effectId) {
       source: "api",
       apiSource: "macro",
       sourceLabel: game.i18n.localize("FXMASTER.Layers.SourceApiMacro"),
+      apiPresetName: null,
     };
   }
 
@@ -101,6 +105,7 @@ export function getSceneEffectSourceInfo(effectId) {
     source: "api",
     apiSource: "generic",
     sourceLabel: game.i18n.localize("FXMASTER.Layers.SourceApi"),
+    apiPresetName: null,
   };
 }
 

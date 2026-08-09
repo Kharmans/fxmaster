@@ -832,13 +832,24 @@ export class CommonRegionBehaviorConfig extends foundry.applications.sheets.Regi
       { signal: ac.signal, capture: true },
     );
 
-    for (const effectDef of Object.values(CONFIG?.fxmaster?.filterEffects ?? {})) {
-      try {
-        effectDef?.refreshManualPlacementControl?.();
-      } catch (err) {
-        logger.debug("FXMaster:", err);
+    const refreshControls = () => {
+      for (const effectDef of Object.values(CONFIG?.fxmaster?.filterEffects ?? {})) {
+        try {
+          effectDef?.refreshManualPlacementControl?.();
+        } catch (err) {
+          logger.debug("FXMaster:", err);
+        }
       }
-    }
+    };
+    const scheduleRefresh = (event) => {
+      const name = String(event?.target?.name ?? "");
+      if (!name.endsWith("_enabled") && !name.endsWith("_manualPlacement")) return;
+      requestAnimationFrame(refreshControls);
+    };
+
+    form.addEventListener("input", scheduleRefresh, { signal: ac.signal, capture: true });
+    form.addEventListener("change", scheduleRefresh, { signal: ac.signal, capture: true });
+    refreshControls();
   }
 
   _renderFilterActionControls(type, parameterConfig, name, { regionId = "", behaviorId = "" } = {}) {

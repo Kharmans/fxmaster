@@ -3300,8 +3300,34 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
 
     const belowTokens = !!entry?.belowTokens;
     const belowTiles = !!entry?.belowTiles;
+    const hasMaskTextureOverride = entry?.maskTextureOverride != null;
     const texture =
       entry?.maskTextureOverride ?? chooseParticleMaskTexture(this._sceneMaskBundle, belowTokens, belowTiles);
+
+    const parentBucket = container.parent ?? null;
+    const parentMaskSprite =
+      parentBucket === this._sceneBelowBase
+        ? this._sceneBelowBaseMask
+        : parentBucket === this._sceneBelowCutout
+        ? this._sceneBelowCutoutMask
+        : parentBucket === this._sceneAboveBase
+        ? this._sceneAboveBaseMask
+        : parentBucket === this._sceneAboveCutout
+        ? this._sceneAboveCutoutMask
+        : null;
+    const parentAppliesSameMask =
+      !hasMaskTextureOverride &&
+      !belowTiles &&
+      !!parentMaskSprite &&
+      !parentMaskSprite.destroyed &&
+      parentMaskSprite._fxmMaskEnabled === true &&
+      parentMaskSprite.texture === texture &&
+      parentBucket?.mask === parentMaskSprite;
+
+    if (parentAppliesSameMask) {
+      disableParticleMask(container, sprite);
+      return;
+    }
 
     if (!isUsableParticleMaskTexture(texture)) {
       disableParticleMask(container, sprite);
@@ -3691,15 +3717,16 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     }
 
     let hasSuppression = sceneParticlesHaveRelevantSuppressionRegions(this);
-    /** Foundry's primary/perception tickers run before this low-priority FXMaster ticker. */
-    const overlayState = hasSuppression
+    const worldAtlasMasks = SceneMaskManager.instance.usesWorldAtlas?.("particles") === true;
+    const tracksLiveSurfaceState = hasSuppression && !worldAtlasMasks;
+    const overlayState = tracksLiveSurfaceState
       ? getCanvasLiveLevelSurfaceState(canvas?.scene ?? null, {
           presynced: true,
           includeTransientFades: false,
         })
       : null;
     const overlaySignature = overlayState?.key ?? "";
-    const overlayChanged = hasSuppression && overlaySignature !== this._lastSceneSuppressionOverlaySignature;
+    const overlayChanged = tracksLiveSurfaceState && overlaySignature !== this._lastSceneSuppressionOverlaySignature;
 
     if (overlayChanged) {
       markSceneParticleSuppressionCompositorInteraction(this, { reason: "overlay" });
@@ -3707,13 +3734,14 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     }
 
     const maskingChanged = !!hasSuppression !== (this._lastSceneSuppressionNeedsMasking === true);
-    const worldAtlasMasks = SceneMaskManager.instance.usesWorldAtlas?.("particles") === true;
 
-    if (!hasSuppression) this._lastSceneSuppressionOverlaySignature = "";
-    if (!cameraChanged && !overlayChanged && !maskingChanged) return;
+    if (!cameraChanged && !overlayChanged && !maskingChanged) {
+      if (!tracksLiveSurfaceState) this._lastSceneSuppressionOverlaySignature = "";
+      return;
+    }
 
     this._lastSceneSuppressionNeedsMasking = !!hasSuppression;
-    this._lastSceneSuppressionOverlaySignature = overlaySignature;
+    this._lastSceneSuppressionOverlaySignature = tracksLiveSurfaceState ? overlaySignature : "";
     if (cameraChanged) {
       this._lastSceneMaskMatrix = { a: M.a, b: M.b, c: M.c, d: M.d, tx: M.tx, ty: M.ty };
     }

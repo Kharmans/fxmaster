@@ -70,6 +70,7 @@ import {
   fxmGetPrimaryCanvasObjects,
   fxmGetPrimaryLevelTextureMeshes,
   fxmGetPrimaryTileMeshes,
+  fxmIsCanvasLevelTexture,
   fxmPrimaryCanvasObjectIsLive,
   fxmLinkedPlaceableFromDisplayObject,
   fxmGetPublicHoverFadeState,
@@ -4537,7 +4538,7 @@ export class GlobalEffectsCompositor {
   /**
    * Return whether a tile-like surface has an explicit multi-Level assignment that intersects the supplied Level ids.
    *
-   * Most overhead-protection paths intentionally use visual/elevation identity for broad multi-Level tiles so a Level 2 Region cannot draw over a Level 3 canopy. Scene rows are different: if a user explicitly assigns a tile to Levels 1, 2, and 3 and assigns a scene effect to Level 1, that tile should still receive the Level 1 scene effect rather than behaving as if Below Tiles were enabled. This helper lets scene-row selected masks honor that explicit assignment without weakening Region overlay protection.
+   * Broad multi-Level Tiles normally use visual elevation identity to protect upper overlays. Explicit assignments are accepted only by callers that require shared-Tile fallback coverage for a selected scene Level or the currently viewed Region Level.
    *
    * @param {{ mesh?: object|null, object?: object|null, document?: foundry.abstract.Document|null, level?: object|null }} options
    * @param {Set<string>|null|undefined} levelIds
@@ -4860,9 +4861,7 @@ export class GlobalEffectsCompositor {
   }
 
   /**
-   * Return whether a scene row should treat explicitly multi-Level-assigned tiles as selected surfaces for Level masks.
-   *
-   * This is intentionally scene-row-only. Region rows continue to use visual tile identity so a Level 2 Region cannot render over a visually Level 3 tile just because that tile is broadly assigned to Levels 1/2/3.
+   * Return whether a scene row should treat explicitly multi-Level-assigned Tiles as selected surfaces for Level masks.
    *
    * @param {object|null|undefined} row
    * @returns {boolean}
@@ -4878,6 +4877,49 @@ export class GlobalEffectsCompositor {
     for (const levelId of allowedLevelIds) {
       if (!this.#levelHasSelectedNonTileSurfaceCoverage(levelId)) return true;
     }
+    return false;
+  }
+
+  /**
+   * Return whether a current-Level Region row may use explicitly shared Tile assignments as fallback surface coverage.
+   *
+   * @param {object|null|undefined} row
+   * @returns {boolean}
+   */
+  #regionRowHonorsCurrentLevelMultiLevelTileAssignments(row) {
+    if (!canvas?.level || !row?.uid) return false;
+    if (this.#getRowScope(row) !== "region") return false;
+    if (this.#rowWantsBelowTiles(row)) return false;
+
+    const currentLevelId = getCanvasLevel()?.id ?? null;
+    const allowedLevelIds = this.#getRowAllowedLevelIds(row);
+    if (!currentLevelId || !allowedLevelIds?.has(currentLevelId)) return false;
+
+    const currentLevelIds = new Set([currentLevelId]);
+    const currentLevel = this.#getSceneLevelById(currentLevelId);
+    if (this.#getCachedLevelConfiguredImagePaths(currentLevel).size) return false;
+    if (
+      this.#collectVisibleSurfaceObjectsForLevelIds(currentLevelIds, {
+        includeTiles: false,
+        strictLevelIdentity: true,
+      }).length
+    )
+      return false;
+
+    for (const mesh of this.#getPrimaryTileMeshesForFrame()) {
+      const tileObject = fxmLinkedPlaceableFromDisplayObject(mesh);
+      if (!tileObject || !this.#tileIsActiveOnCanvas(tileObject)) continue;
+      const document = tileObject?.document ?? null;
+      const level = mesh?.level ?? tileObject?.level ?? document?.level ?? null;
+      if (
+        this.#surfaceHasExplicitMultiLevelTileAssignmentToLevelIds(
+          { mesh, object: tileObject, document: document ?? tileObject, level },
+          currentLevelIds,
+        )
+      )
+        return true;
+    }
+
     return false;
   }
 
@@ -5280,13 +5322,13 @@ export class GlobalEffectsCompositor {
    *
    * @param {{ mesh?: object|null, object?: object|null, document?: foundry.abstract.Document|null, level?: object|null, elevation?: number }} options
    * @param {foundry.documents.Level|null|undefined} targetLevel
-   * @param {{ protectedLevelIds?: Set<string>|null, overlayLevels?: foundry.documents.Level[]|null }} [options]
+   * @param {{ protectedLevelIds?: Set<string>|null, overlayLevels?: object[]|null, protectExplicitMultiLevelTiles?: boolean }} [options]
    * @returns {boolean}
    */
   #surfaceBelongsToVisibleOverlayLevels(
     { mesh = null, object = null, document = null, level = null, elevation = Number.NaN } = {},
     targetLevel,
-    { protectedLevelIds = null, overlayLevels = null } = {},
+    { protectedLevelIds = null, overlayLevels = null, protectExplicitMultiLevelTiles = false } = {},
   ) {
     if (!targetLevel) return false;
 
@@ -5302,6 +5344,11 @@ export class GlobalEffectsCompositor {
 
     const surfaceContext = { mesh, object, document, level, elevation };
     if (this.#surfaceStrictlyTargetsLevelIds(surfaceContext, protectedLevelIds)) return false;
+    if (
+      protectExplicitMultiLevelTiles &&
+      this.#surfaceHasExplicitMultiLevelTileAssignmentToLevelIds(surfaceContext, protectedLevelIds)
+    )
+      return false;
 
     /**
      * Upper-overlay protection must follow visual surface identity rather than only strict Level ownership. Overhead tiles can report broad multi-Level membership while visually occupying a higher overlay. A strict-only test omits those tiles from the restore mask and lets a lower-Level Region particle row draw over them after Level changes.
@@ -5423,6 +5470,10 @@ export class GlobalEffectsCompositor {
    * @returns {PIXI.DisplayObject|null}
    */
   #resolveLiveSurfaceDisplayObject(primaryObject, linkedObject) {
+    if (fxmIsCanvasLevelTexture(primaryObject)) {
+      return fxmPrimaryCanvasObjectIsLive(primaryObject) ? primaryObject : null;
+    }
+
     for (const object of [
       linkedObject?.mesh ?? null,
       linkedObject?.primaryMesh ?? null,
@@ -5439,15 +5490,18 @@ export class GlobalEffectsCompositor {
    * Collect currently rendered upper-level surfaces above a target level.
    *
    * @param {foundry.documents.Level|null|undefined} targetLevel
-   * @param {{ protectedLevelIds?: Set<string>|null, includeRevealed?: boolean }} [options]
+   * @param {{ protectedLevelIds?: Set<string>|null, includeRevealed?: boolean, protectExplicitMultiLevelTiles?: boolean }} [options]
    * @returns {PIXI.DisplayObject[]}
    */
-  #collectUpperSurfaceObjectsForTargetLevel(targetLevel, { protectedLevelIds = null, includeRevealed = false } = {}) {
+  #collectUpperSurfaceObjectsForTargetLevel(
+    targetLevel,
+    { protectedLevelIds = null, includeRevealed = false, protectExplicitMultiLevelTiles = false } = {},
+  ) {
     if (!targetLevel || !canvas?.primary) return [];
 
     const cacheKey = `${this.#upperSurfaceObjectsCacheKey(targetLevel, protectedLevelIds)}:revealed:${
       includeRevealed ? 1 : 0
-    }`;
+    }:protectExplicitMultiTiles:${protectExplicitMultiLevelTiles ? 1 : 0}`;
     const frameCache = this._upperSurfaceObjectsFrameCache;
     if (frameCache?.has(cacheKey)) return frameCache.get(cacheKey) ?? [];
 
@@ -5494,6 +5548,7 @@ export class GlobalEffectsCompositor {
         !this.#surfaceBelongsToVisibleOverlayLevels({ mesh, object, document, level, elevation }, targetLevel, {
           protectedLevelIds,
           overlayLevels,
+          protectExplicitMultiLevelTiles,
         })
       )
         continue;
@@ -5531,7 +5586,7 @@ export class GlobalEffectsCompositor {
         !this.#surfaceBelongsToVisibleOverlayLevels(
           { mesh, object: tileObject, document: document ?? tileObject ?? null, level, elevation },
           targetLevel,
-          { protectedLevelIds, overlayLevels },
+          { protectedLevelIds, overlayLevels, protectExplicitMultiLevelTiles },
         )
       )
         continue;
@@ -5592,13 +5647,25 @@ export class GlobalEffectsCompositor {
       const [levelId] = Array.from(allowedLevelIds);
       if (!levelId) return false;
       if (this.#levelIsCurrentCanvasView(levelId)) {
+        const protectExplicitMultiLevelTiles = this.#regionRowHonorsCurrentLevelMultiLevelTileAssignments(row);
         let sawSelectedCurrentLevel = false;
         for (const segment of this.#buildSelectedLevelCompositeSegments(allowedLevelIds)) {
           if (segment?.type === "selected") {
             sawSelectedCurrentLevel = true;
             continue;
           }
-          if (sawSelectedCurrentLevel && segment?.type === "restore") return true;
+          if (!sawSelectedCurrentLevel || segment?.type !== "restore") continue;
+
+          const blockerLevelIds = new Set(Array.from(segment.levelIds ?? []).filter(Boolean));
+          if (
+            this.#collectVisualBlockerSurfaceObjectsForLevelIds(blockerLevelIds, {
+              protectedLevelIds: allowedLevelIds,
+              includeTiles: true,
+              strictLevelIdentity: false,
+              protectExplicitMultiLevelTiles,
+            }).length
+          )
+            return true;
         }
         return false;
       }
@@ -5700,20 +5767,15 @@ export class GlobalEffectsCompositor {
       const document = tileObject?.document ?? null;
       const elevation = Number(mesh?.elevation ?? document?.elevation ?? tileObject?.elevation ?? Number.NaN);
       const level = mesh?.level ?? tileObject?.level ?? document?.level ?? null;
-      const surfaceTargets = strictLevelIdentity
-        ? this.#surfaceStrictlyTargetsLevelIds(
-            { mesh, object: tileObject, document: document ?? tileObject ?? null, level, elevation },
-            levelIds,
-          )
-        : (includeExplicitMultiLevelTiles &&
-            this.#surfaceHasExplicitMultiLevelTileAssignmentToLevelIds(
-              { mesh, object: tileObject, document: document ?? tileObject ?? null, level },
-              levelIds,
-            )) ||
-          this.#surfaceEffectTargetsLevelIds(
-            { mesh, object: tileObject, document: document ?? tileObject ?? null, level, elevation },
-            levelIds,
-          );
+      const surfaceContext = { mesh, object: tileObject, document: document ?? tileObject ?? null, level, elevation };
+      const explicitlyTargetsSelectedLevel =
+        includeExplicitMultiLevelTiles &&
+        this.#surfaceHasExplicitMultiLevelTileAssignmentToLevelIds(surfaceContext, levelIds);
+      const surfaceTargets =
+        explicitlyTargetsSelectedLevel ||
+        (strictLevelIdentity
+          ? this.#surfaceStrictlyTargetsLevelIds(surfaceContext, levelIds)
+          : this.#surfaceEffectTargetsLevelIds(surfaceContext, levelIds));
       if (!surfaceTargets) continue;
 
       push(captureObject);
@@ -7100,12 +7162,15 @@ export class GlobalEffectsCompositor {
    */
   #compositeRegionLevelRowOutput(row, rowOutput, rowInput, output, { belowForeground = false } = {}) {
     const selectedLevelIds = this.#getRowAllowedLevelIds(row);
+    const honorCurrentLevelSharedTiles = this.#regionRowHonorsCurrentLevelMultiLevelTileAssignments(row);
     return this.#compositeLevelRowOutputForLevelIds(selectedLevelIds, rowOutput, rowInput, output, {
       belowForeground,
       restoreUnselectedAbove: true,
       includeTiles: true,
       strictLevelIdentity: true,
       restoreStrictLevelIdentity: false,
+      includeExplicitMultiLevelTiles: honorCurrentLevelSharedTiles,
+      protectExplicitMultiLevelTiles: honorCurrentLevelSharedTiles,
     });
   }
 
@@ -7972,10 +8037,13 @@ export class GlobalEffectsCompositor {
     if (!targetLevel) return null;
 
     const protectedLevelIds = this.#getRegionAllowedLevelIds(row, targetLevel);
+    const protectExplicitMultiLevelTiles = this.#regionRowHonorsCurrentLevelMultiLevelTileAssignments(row);
     const protectedKey = Array.from(protectedLevelIds ?? [])
       .sort()
       .join("|");
-    const cacheKey = `${targetLevel?.id ?? "target"}:${protectedKey}`;
+    const cacheKey = `${targetLevel?.id ?? "target"}:${protectedKey}:protectExplicitMultiTiles:${
+      protectExplicitMultiLevelTiles ? 1 : 0
+    }`;
     if (cache instanceof Map && cache.has(cacheKey)) return cache.get(cacheKey) ?? null;
 
     const remember = (value) => {
@@ -7986,6 +8054,7 @@ export class GlobalEffectsCompositor {
     const upperObjects = this.#collectUpperSurfaceObjectsForTargetLevel(targetLevel, {
       protectedLevelIds,
       includeRevealed: true,
+      protectExplicitMultiLevelTiles,
     });
     if (!upperObjects.length) return remember(null);
 

@@ -1013,13 +1013,25 @@
   margin-bottom: 0.25rem;
 }
 
-.fxmaster-api-effects-col.actions {
+.fxmaster-api-effects-col.actions,
+.fxmaster-api-effects-actions {
   flex: 0 0 5.5rem;
   margin-left: auto;
 }
 
+.fxmaster-api-effects-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  min-width: 5.5rem;
+}
+
+.fxmaster-api-effects-actions > button {
+  margin: 0;
+}
+
 .fxmaster-api-effects-edit {
-  margin-left: auto;
   contain: layout paint;
   will-change: transform;
   transform: translateZ(0);
@@ -1050,7 +1062,7 @@
 }
 
 .fxmaster-api-effects-effect {
-  min-width: 0;
+  min-width: 14rem;
   overflow: hidden;
 }
 
@@ -1081,6 +1093,13 @@
   white-space: nowrap;
 }
 
+#api-effects-config .fxmaster-api-effects-col.source,
+#api-effects-config .fxmaster-api-effects-col.name,
+#api-effects-config .fxmaster-api-effects-source,
+#api-effects-config .fxmaster-api-effects-name {
+  text-align: left;
+}
+
 .fxmaster-api-effects-row .fxmaster-collapse-arrow {
   right: 5.6rem;
 }
@@ -1091,7 +1110,7 @@
   display: flex !important;
   flex-direction: column !important;
   height: auto !important;
-  max-height: var(--fxmaster-max-height) !important;
+  max-height: var(--fxmaster-max-height);
   overflow: hidden !important;
 }
 

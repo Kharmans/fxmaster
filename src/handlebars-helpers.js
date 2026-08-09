@@ -375,6 +375,8 @@ export function isSoundFxParameterVisible(kind, type, paramName) {
   if (paramName !== "soundFxEnabled") return true;
 
   try {
+    if (kind === "particle" && CONFIG?.fxmaster?.particleEffects?.[type]?.__fxmUserSoundOnly === true) return true;
+
     const plusActive = !!game?.modules?.get?.(FXMASTER_PLUS_ID)?.active;
     if (!plusActive) return false;
 
@@ -401,6 +403,10 @@ function isSoundFxManualSoundParameterVisible(kind, type) {
 }
 
 function isManagementParameterVisible(kind, type, paramName) {
+  const definitions = kind === "particle" ? CONFIG?.fxmaster?.particleEffects : CONFIG?.fxmaster?.filterEffects;
+  const parameters = definitions?.[type]?.parameters;
+  if (!parameters || !Object.hasOwn(parameters, paramName)) return false;
+
   if (paramName === "levels") return sceneHasMultipleLevels();
   if (paramName === "synchronizedDirection") return isFxMasterPlusActive();
   if (paramName === "soundFxManualSoundIds") return isSoundFxManualSoundParameterVisible(kind, type);

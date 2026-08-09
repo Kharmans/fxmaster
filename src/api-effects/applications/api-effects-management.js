@@ -38,6 +38,14 @@ function isLegacyOperatorKey(id) {
   return typeof id === "string" && (id.startsWith("-=") || id.startsWith("=="));
 }
 
+function formatPresetName(value) {
+  return String(value ?? "")
+    .split(/[-_]+/u)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
 /**
  * ApiEffectsManagement
  * --------------------
@@ -128,7 +136,17 @@ export class ApiEffectsManagement extends FXMasterBaseFormV2 {
       const displayName = canEdit ? getDisplayName(kind, type) : nameFallback;
 
       const sourceInfo = getSceneEffectSourceInfo(id);
-      const detailsObj = { uid, kind, id, source: sourceInfo.sourceLabel, ...info };
+      const presetName = formatPresetName(sourceInfo.apiPresetName);
+      const sourceLabel = sourceInfo.sourceLabel;
+      const nameLabel = presetName || sourceName;
+      const detailsObj = {
+        uid,
+        kind,
+        id,
+        source: sourceLabel,
+        ...(presetName ? { preset: presetName } : {}),
+        ...info,
+      };
 
       apiEffects.push({
         uid,
@@ -138,8 +156,9 @@ export class ApiEffectsManagement extends FXMasterBaseFormV2 {
         id,
         label: displayName,
         effectType: type || nameFallback,
-        sourceLabel: sourceInfo.sourceLabel,
+        sourceLabel,
         sourceName,
+        nameLabel,
         apiSource: sourceInfo.apiSource,
         details: safeJSONStringify(detailsObj),
         expanded: this._expandedUids?.has?.(uid) ?? false,
@@ -169,7 +188,7 @@ export class ApiEffectsManagement extends FXMasterBaseFormV2 {
       if (kind) return kind;
       const source = a.sourceLabel.localeCompare(b.sourceLabel, undefined, { sensitivity: "base", numeric: true });
       if (source) return source;
-      const name = (a.sourceName ?? "").localeCompare(b.sourceName ?? "", undefined, {
+      const name = (a.nameLabel ?? "").localeCompare(b.nameLabel ?? "", undefined, {
         sensitivity: "base",
         numeric: true,
       });

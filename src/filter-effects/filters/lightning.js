@@ -436,7 +436,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
 
   /**
    * Run a single flash animation with a fast strike, quick falloff, and soft residual tail.
-   * @returns {Promise<void>} Resolves when the flash finishes.
+   * @returns {Promise<boolean>} Resolves with whether the flash completed while still active.
    * @private
    */
   _flashOnce(generation = this._flashGeneration) {
@@ -538,7 +538,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     const generation = this._flashGeneration;
     this._animating = true;
     const bursts = Math.random() < 0.7 ? 1 : Math.random() < 0.6 ? 2 : 3;
-    let p = Promise.resolve();
+    let p = Promise.resolve(true);
     for (let i = 0; i < bursts; i++) {
       p = p.then((active) => {
         if (active === false || !this._isFlashGenerationActive(generation)) return false;
