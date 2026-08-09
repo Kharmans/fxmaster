@@ -9,13 +9,12 @@
   src="https://github.com/user-attachments/assets/fddaf4b7-767e-4a48-be22-8df87188f257">
 </video>
 <h2 style="text-align: center;">Supporting The Module</h2>
-<p style="text-align: center;"><a href="https://ko-fi.com/gambit07" target="_blank" rel="nofollow noopener"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi" /></a> <a href="https://www.patreon.com/GambitsLounge" target="_blank" rel="nofollow noopener"> <img src="https://img.shields.io/badge/Patreon-Gambits Lounge-F96854?style=for-the-badge&amp;logo=patreon" alt="Patreon Gambits Lounge" /> </a></p>
+<p style="text-align: center;"><a href="https://ko-fi.com/gambit07" target="_blank" rel="nofollow noopener"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi" /></a> <a href="https://www.patreon.com/GambitsLounge" target="_blank" rel="nofollow noopener"> <img src="https://img.shields.io/badge/Patreon-Gambits Lounge-F96854?style=for-the-badge&amp;logo=patreon" alt="Patreon Gambits Lounge" /></a> <a href="https://gambit07.github.io/fxmaster-wiki/"> <img src="https://img.shields.io/badge/FXMaster-OPEN%20WIKI-6eaef7?style=for-the-badge&logo=githubpages&logoColor=white&labelColor=7d69f2&" alt="Open the FXMaster Wiki"></a></p>
 <hr/>
 <p>Welcome to the official release of FXMaster V8! This release brings brand new handling for V14 Scene Levels, new Manage Layers functionality to order particle and filter effects, new macro API with improved flexibility, and more! Hope everyone enjoys!</p>
 
 **<p>Any support via the <a href="https://www.patreon.com/GambitsLounge" target="_blank" rel="nofollow noopener">Patreon</a> or <a href="https://ko-fi.com/gambit07" target="_blank" rel="nofollow noopener">Ko-fi</a> is greatly appreciated! If you are a Patreon subscriber you will receive access to the FXMaster+ module. FXMaster+ can be accessed from Patreon, and it's where I will be adding new particle effects and filters moving forward. For the month of May, it will get you access to the 🟢Summer Leaves, 🟡Fire, 🟢Aurora Borealis, ⚪Wind, ⚪Wind Wisp, 🔵Water, 🟡Lightning Bolts, 🔵Fish, 🟢Glitch, 🔵Ice, 🟤Duststorm, 🟤Sandstorm, 🟢Ghosts, 🟡Sunlight, 🟢Magic Crystals, 🟡Fireflies, 🌸Sakura Bloom, and 🌸Sakura Blossoms Effects - Effects are previewed below:</p>**
 
-https://github.com/user-attachments/assets/b21611d7-9bf0-4d94-91ed-82b9f55b9aff
   <video
     autoplay
     muted
