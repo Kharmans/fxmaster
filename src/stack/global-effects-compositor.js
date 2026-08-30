@@ -1,5 +1,6 @@
 import { FOUNDRY_GRID_STACK_UID, getOrderedEnabledEffectRenderRows } from "../common/effect-stack.js";
 import { FilterEffectsSceneManager } from "../filter-effects/filter-effects-scene-manager.js";
+import { FILTER_PRESENTATION_PASSES } from "../filter-effects/filters/mixins/filter.js";
 import { SceneMaskManager } from "../common/base-effects-scene-manager.js";
 import {
   applyRegionBehaviorsToOverheadLevels,
@@ -315,6 +316,16 @@ export class GlobalEffectsCompositor {
     this._maskIntersectionFilter = null;
     this._displayContainer = null;
     this._displaySprite = null;
+    this._aboveDarknessDisplayContainer = null;
+    this._aboveDarknessDisplaySprite = null;
+    this._aboveDarknessAccumulatorRT = null;
+    this._aboveDarknessRawRT = null;
+    this._aboveDarknessFramePrepared = false;
+    this._aboveDarknessContributionRendered = false;
+    this._aboveDarknessAccumulatorActive = false;
+    this._aboveDarknessFrameTexture = null;
+    this._aboveDarknessOutputWidth = 0;
+    this._aboveDarknessOutputHeight = 0;
     this._gridMeshVisibilityState = null;
     this._blitSprite = null;
     this._filterSprite = null;
@@ -462,9 +473,11 @@ export class GlobalEffectsCompositor {
     this.#syncCompositedSceneParticleSources([], false);
 
     const previousDisplayParent = this._displayContainer?.parent ?? null;
+    const previousAboveDarknessParent = this._aboveDarknessDisplayContainer?.parent ?? null;
 
     try {
       if (this._displaySprite) this._displaySprite.mask = null;
+      if (this._aboveDarknessDisplayContainer) this._aboveDarknessDisplayContainer.mask = null;
     } catch (err) {
       logger.debug("FXMaster:", err);
     }
@@ -487,7 +500,20 @@ export class GlobalEffectsCompositor {
       logger.debug("FXMaster:", err);
     }
 
+    try {
+      this._aboveDarknessDisplaySprite?.parent?.removeChild?.(this._aboveDarknessDisplaySprite);
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+    }
+
+    try {
+      this._aboveDarknessDisplayContainer?.parent?.removeChild?.(this._aboveDarknessDisplayContainer);
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+    }
+
     this.#markDisplayParentRenderDirty({ parent: previousDisplayParent, structural: true });
+    this.#markDisplayParentRenderDirty({ parent: previousAboveDarknessParent, structural: true });
 
     this.layer = null;
     this.#restoreLiveGridMeshVisibility();
@@ -576,6 +602,12 @@ export class GlobalEffectsCompositor {
     this._selectedLevelViewportMovingFrame = false;
     this._levelSurfaceSignatureFrameSerial = -1;
     this._levelSurfaceSignatureFrameValue = null;
+    this._aboveDarknessFramePrepared = false;
+    this._aboveDarknessContributionRendered = false;
+    this._aboveDarknessAccumulatorActive = false;
+    this._aboveDarknessFrameTexture = null;
+    this._aboveDarknessOutputWidth = 0;
+    this._aboveDarknessOutputHeight = 0;
     void this.#suppressionRegionAffectsRow;
     void this.#tokenRevealApertureIntersectsSuppressionRegionBounds;
     void this.#surfaceTargetsLevelIds;
@@ -619,6 +651,13 @@ export class GlobalEffectsCompositor {
       this.#syncStageTransforms();
       this.#ensureSprites();
       this.#ensureRenderTextures();
+      this._aboveDarknessFramePrepared = false;
+      this._aboveDarknessContributionRendered = false;
+      this._aboveDarknessAccumulatorActive = false;
+      this._aboveDarknessFrameTexture = null;
+      if (this.#effectsOverVisionEnabled() || getSceneDarknessLevel(canvas?.scene) <= ACTIVE_DARKNESS_EPSILON) {
+        this.#hideAboveDarknessOutput();
+      }
       this._renderFrameSerial = (this._renderFrameSerial || 0) + 1;
       this.#syncSelectedLevelViewportState();
       this._sceneLevelsFrameSerial = -1;
@@ -769,9 +808,29 @@ export class GlobalEffectsCompositor {
           });
 
           try {
-            if (useDirectSceneFilterClip) this.#applyDirectSceneFilterPass(filter, rowInput, next);
-            else this.#applyFilterPass(filter, rowInput, next);
-            applied = true;
+            const aboveDarknessResult = this.#renderAboveDarknessFilterContribution(row, filter, rowInput, {
+              rowUsesSelectedSurfaceMask,
+              useRegionLevelDrawOrderComposite,
+              rowOverlayMaskTexture,
+              restoreLevelBlockers,
+              wantsBelowForeground,
+              useCompositorSceneFilterSuppression,
+              useNativeWeatherOcclusion,
+              weatherMaskTexture,
+            });
+            const presentationState = aboveDarknessResult.supported
+              ? this.#prepareFilterPresentationPass(filter, FILTER_PRESENTATION_PASSES.BELOW_DARKNESS)
+              : { supported: false, skip: false, cleanup: null };
+
+            try {
+              if (!presentationState.skip) {
+                if (useDirectSceneFilterClip) this.#applyDirectSceneFilterPass(filter, rowInput, next);
+                else this.#applyFilterPass(filter, rowInput, next);
+                applied = true;
+              }
+            } finally {
+              presentationState.cleanup?.();
+            }
           } finally {
             cleanupFilterPass?.();
             cleanupStackMask?.();
@@ -1004,6 +1063,11 @@ export class GlobalEffectsCompositor {
       this.#pruneLevelSegmentMaskRTCache();
       this.#pruneSceneSuppressionMaskRTCaches();
       this.#present(current, { maskOutput: needsOutputSceneMask });
+      if (this._aboveDarknessContributionRendered) {
+        this.#presentAboveDarkness(this._aboveDarknessFrameTexture);
+      } else {
+        this.#hideAboveDarknessOutput();
+      }
     } catch (err) {
       logger.debug("FXMaster:", err);
       this.#hideOutput();
@@ -1295,6 +1359,84 @@ export class GlobalEffectsCompositor {
     if (value === true) return true;
     if (value && typeof value === "object" && "value" in value) return !!value.value;
     return !!value;
+  }
+
+  /**
+   * Return the presentation descriptor declared by a filter class.
+   *
+   * @param {PIXI.Filter|null|undefined} filter
+   * @returns {object|null}
+   */
+  #getFilterAboveDarknessPresentationDescriptor(filter) {
+    const descriptor = filter?.constructor?.aboveDarknessPresentation ?? null;
+    return descriptor && typeof descriptor === "object" ? descriptor : null;
+  }
+
+  /**
+   * Return whether a filter row requests split above-darkness presentation.
+   *
+   * @param {object|null|undefined} row
+   * @param {PIXI.Filter|null|undefined} filter
+   * @returns {boolean}
+   */
+  #rowWantsAboveDarknessFilterPresentation(row, filter) {
+    if (row?.kind !== "filter" || !filter) return false;
+    if (this.#effectsOverVisionEnabled()) return false;
+    if (getSceneDarknessLevel(canvas?.scene) <= ACTIVE_DARKNESS_EPSILON) return false;
+
+    const descriptor = this.#getFilterAboveDarknessPresentationDescriptor(filter);
+    if (!descriptor || typeof filter.prepareFXMasterPresentationPass !== "function") return false;
+
+    const optionKey = String(descriptor.option ?? "aboveDarkness").trim() || "aboveDarkness";
+    const candidates = [row?.options, filter?.__fxmOptions, filter?.options, filter?._fxmStoredOptions];
+    for (const options of candidates) {
+      if (!options || typeof options !== "object" || !Object.hasOwn(options, optionKey)) continue;
+      return this.#resolveBooleanOption(options[optionKey]);
+    }
+
+    return false;
+  }
+
+  /**
+   * Prepare a filter for one presentation pass.
+   *
+   * @param {PIXI.Filter|null|undefined} filter
+   * @param {string} pass
+   * @returns {{supported: boolean, skip: boolean, cleanup: (() => void)|null}}
+   */
+  #prepareFilterPresentationPass(filter, pass) {
+    const unsupported = { supported: false, skip: false, cleanup: null };
+    if (!filter || typeof filter.prepareFXMasterPresentationPass !== "function") return unsupported;
+
+    let result;
+    try {
+      result = filter.prepareFXMasterPresentationPass(pass);
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+      return unsupported;
+    }
+    if (result === false) return unsupported;
+
+    const cleanup =
+      typeof result === "function"
+        ? result
+        : result && typeof result === "object" && typeof result.cleanup === "function"
+        ? result.cleanup
+        : pass !== FILTER_PRESENTATION_PASSES.NORMAL
+        ? () => {
+            try {
+              filter.prepareFXMasterPresentationPass(FILTER_PRESENTATION_PASSES.NORMAL);
+            } catch (err) {
+              logger.debug("FXMaster:", err);
+            }
+          }
+        : null;
+
+    return {
+      supported: true,
+      skip: !!(result && typeof result === "object" && result.skip === true),
+      cleanup,
+    };
   }
 
   /**
@@ -8635,6 +8777,269 @@ export class GlobalEffectsCompositor {
   }
 
   /**
+   * Erase compositor-owned scene-filter suppression from a transparent contribution.
+   *
+   * @param {object|null|undefined} row
+   * @param {PIXI.RenderTexture|null|undefined} output
+   * @returns {boolean}
+   */
+  #eraseCompositorSceneFilterSuppression(row, output) {
+    if (!output || !this.#rowUsesCompositorSceneFilterSuppression(row)) return false;
+
+    let applied = false;
+    for (const entry of this.#activeSuppressionOperatorsForRow(row, "filters")) {
+      const region = entry?.region ?? null;
+      if (!region) continue;
+
+      const levelIds = this.#getSuppressionRegionRowOverlapLevelIds(region, row);
+      if (levelIds?.size !== 1) continue;
+
+      const combinedMask = this.#getCompositorSceneSuppressionCombinedMaskTexture(
+        row,
+        region,
+        "filters",
+        levelIds,
+        this.#suppressionOperatorEdgeFadePercent(entry.row),
+      );
+      if (!combinedMask) continue;
+
+      this.#eraseTextureFromRenderTexture(combinedMask, output);
+      applied = true;
+    }
+
+    return applied;
+  }
+
+  /**
+   * Erase visible foreground coverage from an above-darkness contribution.
+   *
+   * @param {object|null|undefined} row
+   * @param {PIXI.RenderTexture|null|undefined} output
+   * @returns {void}
+   */
+  #eraseAboveDarknessForegroundCoverage(row, output) {
+    if (!output) return;
+
+    let erased = false;
+    if (canvas?.level) {
+      const selectedLevelIds = this.#getRowAllowedLevelIds(row);
+      const levelIds = selectedLevelIds?.size
+        ? Array.from(selectedLevelIds)
+        : this.#getVisibleSceneLevelIdsInDrawOrder();
+
+      for (const levelId of levelIds) {
+        const maskTexture = this.#captureSelectedLevelForegroundMaskForLevelIds([levelId]);
+        if (!maskTexture) continue;
+        this.#eraseTextureFromRenderTexture(maskTexture, output);
+        erased = true;
+      }
+    }
+
+    if (erased) return;
+    const foregroundMask = this.#getForegroundVisibleMaskTexture();
+    if (foregroundMask) this.#eraseTextureFromRenderTexture(foregroundMask, output);
+  }
+
+  /**
+   * Composite one transparent filter contribution into the above-darkness accumulator.
+   *
+   * @param {PIXI.RenderTexture|null|undefined} texture
+   * @param {PIXI.Filter|null|undefined} filter
+   * @returns {boolean}
+   */
+  #blendAboveDarknessContribution(texture, filter) {
+    if (!texture || !this._aboveDarknessRawRT || !this._blitSprite) return false;
+
+    const descriptor = this.#getFilterAboveDarknessPresentationDescriptor(filter);
+    const rawBlendMode = descriptor?.blendMode;
+    const namedBlendMode =
+      typeof rawBlendMode === "string" ? PIXI.BLEND_MODES?.[rawBlendMode.trim().toUpperCase()] : null;
+    const blendMode = Number.isFinite(Number(rawBlendMode))
+      ? Number(rawBlendMode)
+      : Number.isFinite(Number(namedBlendMode))
+      ? Number(namedBlendMode)
+      : PIXI.BLEND_MODES.NORMAL;
+
+    let source = texture;
+    if (
+      blendMode === PIXI.BLEND_MODES.NORMAL &&
+      !this._aboveDarknessAccumulatorActive &&
+      !this._aboveDarknessContributionRendered
+    ) {
+      if (source === this._particleMaskScratchRT) {
+        this.#blit(source, this._aboveDarknessRawRT, { clear: true });
+        source = this._aboveDarknessRawRT;
+      }
+
+      this._aboveDarknessFrameTexture = source;
+      this._aboveDarknessContributionRendered = true;
+      return true;
+    }
+
+    if (!this._aboveDarknessAccumulatorActive) {
+      if (this._aboveDarknessContributionRendered) {
+        if (!this.#promoteAboveDarknessFrameToAccumulator()) return false;
+      } else {
+        if (!this.#ensureAboveDarknessAccumulatorRenderTexture()) return false;
+        if (!this.#clearRenderTexture(this._aboveDarknessAccumulatorRT)) return false;
+        this._aboveDarknessAccumulatorActive = true;
+        this._aboveDarknessFrameTexture = this._aboveDarknessAccumulatorRT;
+      }
+    }
+
+    const previousBlendMode = this._blitSprite.blendMode;
+    try {
+      this._blitSprite.blendMode = blendMode;
+      this.#blit(source, this._aboveDarknessAccumulatorRT, { clear: false });
+      this._aboveDarknessFrameTexture = this._aboveDarknessAccumulatorRT;
+      this._aboveDarknessContributionRendered = true;
+      return true;
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+      return false;
+    } finally {
+      this._blitSprite.blendMode = previousBlendMode;
+    }
+  }
+
+  /**
+   * Preserve the first contribution before another split filter reuses its texture.
+   *
+   * @returns {boolean}
+   */
+  #promoteAboveDarknessFrameToAccumulator() {
+    if (this._aboveDarknessAccumulatorActive) return true;
+
+    const source = this._aboveDarknessFrameTexture;
+    if (!source || !this.#ensureAboveDarknessAccumulatorRenderTexture()) return false;
+
+    this.#blit(source, this._aboveDarknessAccumulatorRT, { clear: true });
+    this._aboveDarknessAccumulatorActive = true;
+    this._aboveDarknessFrameTexture = this._aboveDarknessAccumulatorRT;
+    return true;
+  }
+
+  /**
+   * Render and constrain one above-darkness filter contribution.
+   *
+   * @param {object|null|undefined} row
+   * @param {PIXI.Filter|null|undefined} filter
+   * @param {PIXI.RenderTexture|null|undefined} rowInput
+   * @param {object} options
+   * @returns {{supported: boolean, rendered: boolean}}
+   */
+  #renderAboveDarknessFilterContribution(
+    row,
+    filter,
+    rowInput,
+    {
+      rowUsesSelectedSurfaceMask = false,
+      useRegionLevelDrawOrderComposite = false,
+      rowOverlayMaskTexture = null,
+      restoreLevelBlockers = false,
+      wantsBelowForeground = false,
+      useCompositorSceneFilterSuppression = false,
+      useNativeWeatherOcclusion = false,
+      weatherMaskTexture = null,
+    } = {},
+  ) {
+    const unsupported = { supported: false, rendered: false };
+    if (!rowInput || !this.#rowWantsAboveDarknessFilterPresentation(row, filter)) return unsupported;
+
+    const belowState = this.#prepareFilterPresentationPass(filter, FILTER_PRESENTATION_PASSES.BELOW_DARKNESS);
+    if (!belowState.supported) return unsupported;
+    belowState.cleanup?.();
+
+    const presentationState = this.#prepareFilterPresentationPass(filter, FILTER_PRESENTATION_PASSES.ABOVE_DARKNESS);
+    if (!presentationState.supported) return unsupported;
+    if (presentationState.skip) {
+      presentationState.cleanup?.();
+      return { supported: true, rendered: false };
+    }
+    if (!this.#prepareAboveDarknessFrameResources()) {
+      presentationState.cleanup?.();
+      return unsupported;
+    }
+    if (
+      this._aboveDarknessContributionRendered &&
+      !this._aboveDarknessAccumulatorActive &&
+      !this.#promoteAboveDarknessFrameToAccumulator()
+    ) {
+      presentationState.cleanup?.();
+      return unsupported;
+    }
+
+    const rawTexture = this._aboveDarknessRawRT;
+    const scratchTexture = this._particleMaskScratchRT;
+    if (!rawTexture || !scratchTexture) {
+      presentationState.cleanup?.();
+      return unsupported;
+    }
+
+    try {
+      this.#applyFilterPass(filter, rowInput, rawTexture);
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+      return unsupported;
+    } finally {
+      presentationState.cleanup?.();
+    }
+
+    let current = rawTexture;
+    const nextTarget = () => (current === rawTexture ? scratchTexture : rawTexture);
+
+    if (useNativeWeatherOcclusion) {
+      const target = nextTarget();
+      if (!this.#clearRenderTexture(target)) return unsupported;
+      const applied = this.#overlayTextureWithWeatherOcclusion(current, target, {
+        clipToScene: false,
+        occlusionElevation: this.#resolveOcclusionElevationForRow(row),
+      });
+      if (applied) current = target;
+    }
+
+    let levelCompositeHandlesForeground = false;
+    if (rowUsesSelectedSurfaceMask) {
+      const target = nextTarget();
+      const composited = this.#compositeSelectedLevelRowOutput(row, current, PIXI.Texture.EMPTY, target, {
+        belowForeground: wantsBelowForeground,
+      });
+      if (!composited) return unsupported;
+      current = target;
+      levelCompositeHandlesForeground = wantsBelowForeground;
+    }
+
+    let regionLevelCompositeApplied = false;
+    if (useRegionLevelDrawOrderComposite) {
+      const target = nextTarget();
+      regionLevelCompositeApplied = this.#compositeRegionLevelRowOutput(row, current, PIXI.Texture.EMPTY, target, {
+        belowForeground: wantsBelowForeground,
+      });
+      if (!regionLevelCompositeApplied) return unsupported;
+      current = target;
+      levelCompositeHandlesForeground = wantsBelowForeground;
+    }
+
+    if (rowOverlayMaskTexture && !regionLevelCompositeApplied) {
+      this.#eraseTextureFromRenderTexture(rowOverlayMaskTexture, current);
+    }
+
+    if (restoreLevelBlockers && !rowOverlayMaskTexture) {
+      const blockerMask = this.#getRowLevelBlockerMaskTexture(row);
+      if (blockerMask) this.#eraseTextureFromRenderTexture(blockerMask, current);
+    }
+
+    if (wantsBelowForeground && !levelCompositeHandlesForeground) {
+      this.#eraseAboveDarknessForegroundCoverage(row, current);
+    }
+    if (useCompositorSceneFilterSuppression) this.#eraseCompositorSceneFilterSuppression(row, current);
+    if (weatherMaskTexture) this.#eraseTextureFromRenderTexture(weatherMaskTexture, current);
+
+    const rendered = this.#blendAboveDarknessContribution(current, filter);
+    return rendered ? { supported: true, rendered: true } : unsupported;
+  }
+
+  /**
    * Return the shared native weather occlusion filter used for compositor-owned filter passes.
    *
    * @returns {PIXI.Filter|null}
@@ -9227,10 +9632,7 @@ export class GlobalEffectsCompositor {
     const info = frameInfo ?? this.#analyzeRowsForFrame(safeRows);
     const needsDynamicTokenCoverage = !!info.needsDynamicTokenCoverage;
     const needsDynamicTileCoverage = !!info.needsDynamicTileCoverage;
-    const needsDynamicSuppressionPreservation =
-      !!SceneMaskManager.instance.needsDynamicLevelSuppressionPreservation?.();
-    const needsDynamicCoverage =
-      needsDynamicTokenCoverage || needsDynamicTileCoverage || needsDynamicSuppressionPreservation;
+    const needsDynamicCoverage = needsDynamicTokenCoverage || needsDynamicTileCoverage;
     const needsRegionFilterCoverageRefresh = !!info.needsRegionFilterCoverageRefresh;
     const needsRegionParticleCoverageRefresh = !!info.needsRegionParticleCoverageRefresh;
 
@@ -9242,7 +9644,7 @@ export class GlobalEffectsCompositor {
 
     const buildDynamicState = () =>
       this.#buildDynamicCoverageSignature({
-        includeTokens: needsDynamicTokenCoverage || needsDynamicTileCoverage || needsDynamicSuppressionPreservation,
+        includeTokens: needsDynamicTokenCoverage || needsDynamicTileCoverage,
         includeTiles: needsDynamicTokenCoverage || needsDynamicTileCoverage,
       });
 
@@ -9299,12 +9701,6 @@ export class GlobalEffectsCompositor {
 
       this._dynamicCoverageSignature = dynamicState.forceRefresh ? null : dynamicState.key;
       this._dynamicCoverageContentSignature = dynamicState.forceRefresh ? null : dynamicState.contentKey ?? null;
-    } else if (needsDynamicSuppressionPreservation) {
-      try {
-        SceneMaskManager.instance.refreshDynamicSuppressionPreservationIfNeeded?.();
-      } catch (err) {
-        logger.debug("FXMaster:", err);
-      }
     }
   }
 
@@ -9636,6 +10032,95 @@ export class GlobalEffectsCompositor {
   }
 
   /**
+   * Present the transparent filter contribution in the above-darkness band.
+   *
+   * @param {PIXI.RenderTexture|null|undefined} texture
+   * @returns {void}
+   */
+  #presentAboveDarkness(texture) {
+    if (
+      !this.#canBindRenderTexture(texture) ||
+      this.#effectsOverVisionEnabled() ||
+      getSceneDarknessLevel(canvas?.scene) <= ACTIVE_DARKNESS_EPSILON
+    ) {
+      this.#hideAboveDarknessOutput();
+      return;
+    }
+
+    this.#ensureAboveDarknessDisplayObjects();
+    if (!this.#attachAboveDarknessDisplayContainer()) {
+      this.#hideAboveDarknessOutput();
+      return;
+    }
+
+    const sprite = this._aboveDarknessDisplaySprite;
+    const container = this._aboveDarknessDisplayContainer;
+    if (!sprite || !container) return;
+
+    const { width, height } = this.#getViewportMetrics();
+    const structureDirty = this._aboveDarknessOutputWidth !== width || this._aboveDarknessOutputHeight !== height;
+    this._aboveDarknessOutputWidth = width;
+    this._aboveDarknessOutputHeight = height;
+
+    sprite.texture = texture;
+    sprite.position.set(0, 0);
+    sprite.scale.set(1, 1);
+    sprite.width = width;
+    sprite.height = height;
+    this.#syncAboveDarknessDisplayTransform();
+    try {
+      container.mask = canvas?.masks?.scene ?? null;
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+    }
+
+    sprite.visible = true;
+    sprite.renderable = true;
+    container.visible = true;
+    container.renderable = true;
+
+    this.#markDisplayParentRenderDirty({ parent: container.parent ?? null, structural: structureDirty });
+  }
+
+  /**
+   * Hide the above-darkness filter contribution.
+   *
+   * @returns {void}
+   */
+  #hideAboveDarknessOutput() {
+    const sprite = this._aboveDarknessDisplaySprite;
+    const container = this._aboveDarknessDisplayContainer;
+    const parent = container?.parent ?? null;
+    const wasVisible = sprite?.visible === true || container?.visible === true;
+
+    if (sprite) {
+      sprite.texture = PIXI.Texture.EMPTY;
+      sprite.visible = false;
+      sprite.renderable = false;
+      try {
+        sprite.mask = null;
+      } catch (err) {
+        logger.debug("FXMaster:", err);
+      }
+    }
+
+    if (container) {
+      try {
+        container.mask = null;
+      } catch (err) {
+        logger.debug("FXMaster:", err);
+      }
+      container.visible = false;
+      container.renderable = false;
+    }
+
+    this._aboveDarknessContributionRendered = false;
+    this._aboveDarknessAccumulatorActive = false;
+    this._aboveDarknessFrameTexture = null;
+    if (wasVisible) this.#markDisplayParentRenderDirty({ parent });
+  }
+
+  /**
    * Mark the cached display parent dirty after output texture or counter-transform changes.
    *
    * Structural refreshes are reserved for attach, reorder, and resize events.
@@ -9684,6 +10169,7 @@ export class GlobalEffectsCompositor {
   #hideOutput() {
     this.#syncCompositedSceneParticleSources([], false);
     this.#restoreLiveGridMeshVisibility();
+    this.#hideAboveDarknessOutput();
 
     if (this._displaySprite) {
       this._displaySprite.texture = PIXI.Texture.EMPTY;
@@ -9805,6 +10291,7 @@ export class GlobalEffectsCompositor {
    * @returns {void}
    */
   syncVisionPresentationSetting() {
+    this.#hideAboveDarknessOutput();
     this.#attachDisplayContainer();
     this.#resetOutputSpriteTransform();
     this.#markDisplayParentRenderDirty({ structural: true });
@@ -10332,6 +10819,35 @@ export class GlobalEffectsCompositor {
   }
 
   /**
+   * Ensure the display objects used by the above-darkness filter band.
+   *
+   * @returns {void}
+   */
+  #ensureAboveDarknessDisplayObjects() {
+    if (!this._aboveDarknessDisplayContainer || this._aboveDarknessDisplayContainer.destroyed) {
+      this._aboveDarknessDisplayContainer = new PIXI.Container();
+      this._aboveDarknessDisplayContainer.name = "fxmasterAboveDarknessFilterBand";
+      this._aboveDarknessDisplayContainer.eventMode = "none";
+      this._aboveDarknessDisplayContainer.sortableChildren = false;
+      this._aboveDarknessDisplayContainer.visible = false;
+      this._aboveDarknessDisplayContainer.renderable = false;
+      this._aboveDarknessDisplayContainer.zIndex = 90000;
+    }
+
+    if (!this._aboveDarknessDisplaySprite || this._aboveDarknessDisplaySprite.destroyed) {
+      this._aboveDarknessDisplaySprite = new PIXI.Sprite(PIXI.Texture.EMPTY);
+      this._aboveDarknessDisplaySprite.name = "fxmasterAboveDarknessFilterOutput";
+      this._aboveDarknessDisplaySprite.eventMode = "none";
+      this._aboveDarknessDisplaySprite.visible = false;
+      this._aboveDarknessDisplaySprite.renderable = false;
+      this._aboveDarknessDisplaySprite.anchor.set(0, 0);
+      this._aboveDarknessDisplayContainer.addChild(this._aboveDarknessDisplaySprite);
+    } else if (this._aboveDarknessDisplaySprite.parent !== this._aboveDarknessDisplayContainer) {
+      this._aboveDarknessDisplayContainer.addChild(this._aboveDarknessDisplaySprite);
+    }
+  }
+
+  /**
    * Ensure the compositor sprites exist.
    *
    * @returns {void}
@@ -10582,6 +11098,80 @@ export class GlobalEffectsCompositor {
   }
 
   /**
+   * Return the parent for above-darkness filter presentation.
+   *
+   * @returns {PIXI.Container|null}
+   */
+  #getAboveDarknessDisplayParent() {
+    const effects = canvas?.effects ?? null;
+    if (effects && !effects.destroyed) return effects;
+
+    const rendered = canvas?.rendered ?? null;
+    if (rendered && !rendered.destroyed) return rendered;
+
+    return this.layer && !this.layer.destroyed ? this.layer : null;
+  }
+
+  /**
+   * Attach the above-darkness filter band below the live particle band.
+   *
+   * @returns {boolean}
+   */
+  #attachAboveDarknessDisplayContainer() {
+    const container = this._aboveDarknessDisplayContainer;
+    const parent = this.#getAboveDarknessDisplayParent();
+    if (!container || !parent) return false;
+
+    const particleBand = (parent.children ?? []).find(
+      (child) => child?.name === "fxmSceneAboveBand" && child !== container,
+    );
+    const previousParent = container.parent ?? null;
+    let structural = false;
+
+    if (container.parent !== parent) {
+      try {
+        container.parent?.removeChild?.(container);
+      } catch (err) {
+        logger.debug("FXMaster:", err);
+      }
+
+      if (parent.sortableChildren) {
+        parent.addChild(container);
+      } else if (particleBand?.parent === parent && typeof parent.addChildAt === "function") {
+        const index = Math.max(0, parent.getChildIndex?.(particleBand) ?? parent.children.length);
+        parent.addChildAt(container, Math.min(index, parent.children.length));
+      } else {
+        parent.addChild(container);
+      }
+      structural = true;
+    }
+
+    try {
+      const zIndexChanged = Number(container.zIndex ?? 0) !== 90000;
+      container.zIndex = 90000;
+      if (parent.sortableChildren) {
+        if (structural || zIndexChanged) parent.sortChildren?.();
+      } else if (particleBand?.parent === parent && typeof parent.setChildIndex === "function") {
+        const particleIndex = parent.getChildIndex(particleBand);
+        const currentIndex = parent.getChildIndex(container);
+        const desiredIndex = Math.max(0, particleIndex - (currentIndex < particleIndex ? 1 : 0));
+        if (currentIndex !== desiredIndex) {
+          parent.setChildIndex(container, desiredIndex);
+          structural = true;
+        }
+      }
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+    }
+
+    if (previousParent && previousParent !== parent) {
+      this.#markDisplayParentRenderDirty({ parent: previousParent, structural: true });
+    }
+    if (structural) this.#markDisplayParentRenderDirty({ parent, structural: true });
+    return container.parent === parent;
+  }
+
+  /**
    * Attach the visible output container to the canvas group at the correct draw position.
    *
    * @returns {void}
@@ -10630,6 +11220,44 @@ export class GlobalEffectsCompositor {
     } catch (err) {
       logger.debug("FXMaster:", err);
     }
+  }
+
+  /**
+   * Lock the above-darkness display band to CSS viewport coordinates.
+   *
+   * @returns {void}
+   */
+  #syncAboveDarknessDisplayTransform() {
+    const container = this._aboveDarknessDisplayContainer;
+    const sprite = this._aboveDarknessDisplaySprite;
+    if (!container || !sprite) return;
+
+    container.roundPixels = false;
+    const parent = container.parent ?? this.#getAboveDarknessDisplayParent();
+    let inverseParentMatrix = null;
+
+    if (parent) {
+      try {
+        const parentMatrix = currentWorldMatrix(parent, {
+          snapStage: this.#useSnappedCompositorTransforms(),
+        });
+        inverseParentMatrix = parentMatrix?.clone ? parentMatrix.clone() : null;
+        inverseParentMatrix?.invert?.();
+      } catch (err) {
+        logger.debug("FXMaster:", err);
+        inverseParentMatrix = null;
+      }
+    }
+
+    try {
+      container.transform.setFromMatrix(inverseParentMatrix ?? PIXI.Matrix.IDENTITY);
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+      container.transform.setFromMatrix(PIXI.Matrix.IDENTITY);
+    }
+
+    sprite.roundPixels = false;
+    sprite.transform.setFromMatrix(PIXI.Matrix.IDENTITY);
   }
 
   /**
@@ -10863,6 +11491,67 @@ export class GlobalEffectsCompositor {
     this._viewportMetricsKey = key;
     this._viewportMetricsValue = value;
     return value;
+  }
+
+  /**
+   * Ensure render textures used by the above-darkness filter band.
+   *
+   * @returns {boolean}
+   */
+  #ensureAboveDarknessRenderTexture(key) {
+    const { width, height, resolution } = this.#getViewportMetrics();
+    const texture = this[key];
+    const usable =
+      this.#canBindRenderTexture(texture) &&
+      texture.width === width &&
+      texture.height === height &&
+      (texture.resolution ?? 1) === resolution;
+    if (usable) return true;
+
+    try {
+      if (this._aboveDarknessDisplaySprite?.texture === texture) {
+        this._aboveDarknessDisplaySprite.texture = PIXI.Texture.EMPTY;
+      }
+      texture?.destroy?.(true);
+      this[key] = PIXI.RenderTexture.create({ width, height, resolution });
+      this.#configureRenderTexture(this[key]);
+      return true;
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+      this[key] = null;
+      return false;
+    }
+  }
+
+  /**
+   * Ensure the raw above-darkness contribution texture.
+   *
+   * @returns {boolean}
+   */
+  #ensureAboveDarknessRenderTextures() {
+    return this.#ensureAboveDarknessRenderTexture("_aboveDarknessRawRT");
+  }
+
+  /**
+   * Ensure the accumulator used when more than one split filter contributes.
+   *
+   * @returns {boolean}
+   */
+  #ensureAboveDarknessAccumulatorRenderTexture() {
+    return this.#ensureAboveDarknessRenderTexture("_aboveDarknessAccumulatorRT");
+  }
+
+  /**
+   * Prepare the transparent above-darkness resources for the current frame.
+   *
+   * @returns {boolean}
+   */
+  #prepareAboveDarknessFrameResources() {
+    if (this._aboveDarknessFramePrepared) return !!this._aboveDarknessRawRT;
+    if (!this.#ensureAboveDarknessRenderTextures()) return false;
+
+    this._aboveDarknessFramePrepared = true;
+    return true;
   }
 
   /**
@@ -11246,6 +11935,16 @@ export class GlobalEffectsCompositor {
       logger.debug("FXMaster:", err);
     }
     try {
+      this._aboveDarknessAccumulatorRT?.destroy?.(true);
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+    }
+    try {
+      this._aboveDarknessRawRT?.destroy?.(true);
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+    }
+    try {
       this._sceneFilterSuppressionRegionRT?.destroy?.(true);
     } catch (err) {
       logger.debug("FXMaster:", err);
@@ -11286,6 +11985,14 @@ export class GlobalEffectsCompositor {
     this._surfaceMaskScratchRT = null;
     this._maskIntersectionRT = null;
     this._feedbackCopyRT = null;
+    this._aboveDarknessAccumulatorRT = null;
+    this._aboveDarknessRawRT = null;
+    this._aboveDarknessFramePrepared = false;
+    this._aboveDarknessContributionRendered = false;
+    this._aboveDarknessAccumulatorActive = false;
+    this._aboveDarknessFrameTexture = null;
+    this._aboveDarknessOutputWidth = 0;
+    this._aboveDarknessOutputHeight = 0;
     this._sceneFilterSuppressionRegionRT = null;
     this._sceneSuppressionRegionMaskRTCache = new Map();
     this._sceneSuppressionRegionMaskDynamicRTCache = new Map();

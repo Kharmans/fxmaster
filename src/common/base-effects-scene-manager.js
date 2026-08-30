@@ -39,7 +39,6 @@ import {
   getRegionElevationWindow,
   inferVisibleLevelForDocument,
   isDocumentOnCurrentCanvasLevel,
-  tokenUpperLevelRevealAllowsBelowTokenMask,
   syncCanvasLiveLevelSurfaceState,
   repaintTokensMaskInto,
   repaintTilesMaskInto,
@@ -53,7 +52,6 @@ import {
   hasActiveTileRestrictionsForMask,
   syncActiveRadialRestrictWeatherTileMasksForCamera,
   documentIncludedInLevel,
-  documentLocatedInLevel,
   fxmGetLevelConfiguredImagePaths,
   fxmGetRegionBehaviorEdgeFadePercent,
   fxmLevelBottom,
@@ -237,28 +235,6 @@ function getLevelTop(level) {
  */
 function levelIsAboveTargetLevel(candidate, target) {
   return fxmLevelIsAbove(candidate, target);
-}
-
-/**
- * Return whether one Level sits below another.
- *
- * @param {any} candidate
- * @param {any} target
- * @returns {boolean}
- * @private
- */
-function levelIsBelowTargetLevel(candidate, target) {
-  if (!candidate || !target) return false;
-  if (candidate?.id && target?.id && candidate.id === target.id) return false;
-
-  const candidateTop = getLevelTop(candidate);
-  const targetBottom = getLevelBottom(target);
-  if (Number.isFinite(candidateTop) && Number.isFinite(targetBottom)) return candidateTop <= targetBottom + 1e-4;
-
-  const candidateBottom = getLevelBottom(candidate);
-  if (Number.isFinite(candidateBottom) && Number.isFinite(targetBottom)) return candidateBottom < targetBottom - 1e-4;
-
-  return !levelIsAboveTargetLevel(candidate, target);
 }
 
 /**
@@ -478,15 +454,13 @@ function getProtectedLevelImagePaths(protectedLevelIds, context = null) {
  * Create per-refresh state for region suppression calculations.
  *
  * @param {{ presyncedLiveLevelState?: boolean }} [options]
- * @returns {{ levelTextures: PIXI.DisplayObject[]|null, tileMeshes: PIXI.DisplayObject[]|null, protectedLevelImagePathsByKey: Map<string, Set<string>>, visibleOverlayLevelIdsByKey: Map<string, Set<string>>, visibleOverlayLevelsByKey: Map<string, Array<any>>, upperSurfaceObjectsByKey: Map<string, PIXI.DisplayObject[]>, upperSurfacePreservationByKey: Map<string, { preserveObjects: PIXI.DisplayObject[], preserveSurfaceGroups: Array<{ levelId: string, objects: PIXI.DisplayObject[], regions: object[] }> }>, definedSurfaceFootprintRegionsByLevelKey: Map<string, object[]>, suppressedUpperSurfaceObjectsByKey: Map<string, PIXI.DisplayObject[]>, visibleSurfaceObjectsByLevelKey: Map<string, PIXI.DisplayObject[]>, visibleLowerSurfaceObjectsByKey: Map<string, PIXI.DisplayObject[]>, visibleOtherLevelTokenPreservationByKey: Map<string, { objects: PIXI.DisplayObject[], shapes: object[] }>, currentLevelSurfaceScopedSuppressionByKey: Map<string, Set<string>>, suppressionBehaviorSummaryByDocument: WeakMap<object, object>, syncedLiveLevelSurfaceState: boolean }}
+ * @returns {{ levelTextures: PIXI.DisplayObject[]|null, tileMeshes: PIXI.DisplayObject[]|null, protectedLevelImagePathsByKey: Map<string, Set<string>>, visibleOverlayLevelIdsByKey: Map<string, Set<string>>, visibleOverlayLevelsByKey: Map<string, Array<any>>, upperSurfaceObjectsByKey: Map<string, PIXI.DisplayObject[]>, upperSurfacePreservationByKey: Map<string, { preserveObjects: PIXI.DisplayObject[], preserveSurfaceGroups: Array<{ levelId: string, objects: PIXI.DisplayObject[], regions: object[] }> }>, definedSurfaceFootprintRegionsByLevelKey: Map<string, object[]>, suppressedUpperSurfaceObjectsByKey: Map<string, PIXI.DisplayObject[]>, visibleSurfaceObjectsByLevelKey: Map<string, PIXI.DisplayObject[]>, visibleLowerSurfaceObjectsByKey: Map<string, PIXI.DisplayObject[]>, suppressionBehaviorSummaryByDocument: WeakMap<object, object>, syncedLiveLevelSurfaceState: boolean }}
  * @private
  */
 function createSuppressionRefreshContext({ presyncedLiveLevelState = false } = {}) {
   return {
     levelTextures: null,
     tileMeshes: null,
-    tokenPlaceables: null,
-    directLowerLevelRevealTokenCandidates: null,
     protectedLevelImagePathsByKey: new Map(),
     visibleOverlayLevelIdsByKey: new Map(),
     visibleOverlayLevelsByKey: new Map(),
@@ -496,8 +470,6 @@ function createSuppressionRefreshContext({ presyncedLiveLevelState = false } = {
     suppressedUpperSurfaceObjectsByKey: new Map(),
     visibleSurfaceObjectsByLevelKey: new Map(),
     visibleLowerSurfaceObjectsByKey: new Map(),
-    visibleOtherLevelTokenPreservationByKey: new Map(),
-    currentLevelSurfaceScopedSuppressionByKey: new Map(),
     suppressionBehaviorSummaryByDocument: new WeakMap(),
     syncedLiveLevelSurfaceState: !!presyncedLiveLevelState,
   };
@@ -1131,687 +1103,6 @@ function collectVisibleSurfaceObjectsForLevelIds(levelIds, { context = null, inc
   }
 
   return remember(objects);
-}
-
-/**
- * Return the world-space center point for a token-like placeable.
- *
- * @param {Token|null|undefined} token
- * @returns {PIXI.Point|{x:number,y:number}|null}
- * @private
- */
-function getTokenCenterPointForSuppression(token) {
-  const boundsCenter = token?.bounds?.center ?? null;
-  if (Number.isFinite(boundsCenter?.x) && Number.isFinite(boundsCenter?.y)) return boundsCenter;
-
-  const center = token?.center ?? null;
-  if (Number.isFinite(center?.x) && Number.isFinite(center?.y)) return center;
-
-  const x = Number(token?.document?.x ?? token?.x ?? Number.NaN);
-  const y = Number(token?.document?.y ?? token?.y ?? Number.NaN);
-  const width = Number(token?.document?.width ?? token?.w ?? token?.width ?? Number.NaN);
-  const height = Number(token?.document?.height ?? token?.h ?? token?.height ?? Number.NaN);
-  const gridSize = Number(canvas?.grid?.size ?? canvas?.dimensions?.size ?? 1);
-  if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(width) && Number.isFinite(height)) {
-    return { x: x + (width * gridSize) / 2, y: y + (height * gridSize) / 2 };
-  }
-
-  return null;
-}
-
-/**
- * Return whether Foundry's live scene mask currently includes a token center.
- *
- * @param {Token|null|undefined} token
- * @returns {boolean|null}
- * @private
- */
-function sceneMaskContainsTokenCenterForSuppression(token) {
-  const sceneMask = canvas?.masks?.scene ?? null;
-  if (!sceneMask || sceneMask.destroyed) return null;
-
-  const point = getTokenCenterPointForSuppression(token);
-  if (!point) return null;
-
-  try {
-    if (typeof sceneMask.containsPoint === "function") return !!sceneMask.containsPoint(point);
-  } catch (err) {
-    logger.debug("FXMaster:", err);
-    return null;
-  }
-
-  const hitArea = sceneMask.hitArea ?? null;
-  const worldTransform = sceneMask.worldTransform ?? null;
-  if (typeof hitArea?.contains !== "function" || typeof worldTransform?.applyInverse !== "function") return null;
-
-  try {
-    const localPoint = worldTransform.applyInverse(point, new PIXI.Point());
-    return !!hitArea.contains(localPoint.x, localPoint.y);
-  } catch (err) {
-    logger.debug("FXMaster:", err);
-    return null;
-  }
-}
-
-/**
- * Return a token's public/inferred Level ids.
- *
- * @param {Token|null|undefined} token
- * @param {Scene|null|undefined} [scene=canvas?.scene ?? null]
- * @returns {Set<string>}
- * @private
- */
-function getTokenSuppressionLevelIds(token, scene = canvas?.scene ?? null) {
-  const document = token?.document ?? token ?? null;
-  if (!document) return new Set();
-
-  /**
-   * Suppression ownership must use the token's authored/native Level, not Foundry's transient `includedInLevel` answer. While hovering a higher Level overlay, native Levels can reveal a lower-Level token through the current view; treating that reveal as Level ownership makes a Level 2 suppression Region affect the Level 1 token instead of preserving it.
-   */
-  const sceneForLookup = scene ?? document?.parent ?? canvas?.scene ?? null;
-  const elevation = Number(token?.document?.elevation ?? token?.elevation ?? Number.NaN);
-
-  const rawLevels = document?.levels ?? null;
-  let directLevels = null;
-  if (rawLevels instanceof Set) directLevels = new Set(Array.from(rawLevels).map(String).filter(Boolean));
-  else if (Array.isArray(rawLevels)) directLevels = new Set(rawLevels.map(String).filter(Boolean));
-  else if (typeof rawLevels?.values === "function") {
-    try {
-      directLevels = new Set(Array.from(rawLevels.values()).map(String).filter(Boolean));
-    } catch (_err) {
-      directLevels = null;
-    }
-  } else if (typeof rawLevels?.[Symbol.iterator] === "function" && typeof rawLevels !== "string") {
-    try {
-      directLevels = new Set(Array.from(rawLevels).map(String).filter(Boolean));
-    } catch (_err) {
-      directLevels = null;
-    }
-  }
-  if (directLevels?.size) return directLevels;
-
-  const directLevel = document?.level ?? null;
-  const directLevelId = typeof directLevel === "string" ? directLevel : fxmDocumentId(directLevel) || null;
-  if (directLevelId) {
-    const level = getSceneLevelById(directLevelId, sceneForLookup);
-    const located = level ? documentLocatedInLevel(document, level) : null;
-    if (located === true) return new Set([String(directLevelId)]);
-    if (!level || !Number.isFinite(elevation)) return new Set([String(directLevelId)]);
-
-    const bottom = getLevelBottom(level);
-    const top = getLevelTop(level);
-    const withinBottom = !Number.isFinite(bottom) || elevation >= bottom - 1e-4;
-    const withinTop = !Number.isFinite(top) || elevation <= top + 1e-4;
-    if (withinBottom && withinTop) return new Set([String(directLevelId)]);
-  }
-
-  /**
-   * Foundry v14.364 exposes TokenDocument#locatedInLevel for source-Level ownership without conflating visibility from another Level. The API also supports token-like documents without a direct `level` field.
-   */
-  if (typeof document?.locatedInLevel === "function") {
-    const locatedLevelIds = new Set();
-    for (const level of getSceneLevels(sceneForLookup)) {
-      const levelId = String(fxmDocumentId(level)).trim();
-      if (!levelId) continue;
-      if (documentLocatedInLevel(document, level) === true) locatedLevelIds.add(levelId);
-    }
-    if (locatedLevelIds.size) return locatedLevelIds;
-  }
-
-  /**
-   * Use authored/elevation ownership before Foundry's visible-Level inference. canvas.inferLevelFromElevation intentionally falls back to the currently viewed Level when no visible Level contains the elevation. During native hover reveal this can classify a lower-Level token as the viewed Level, which prevents level-scoped suppression from restoring the revealed lower token aperture.
-   */
-  if (Number.isFinite(elevation)) {
-    const ids = new Set();
-    for (const level of getSceneLevels(sceneForLookup)) {
-      const levelId = String(fxmDocumentId(level)).trim();
-      if (!levelId) continue;
-      const bottom = getLevelBottom(level);
-      const top = getLevelTop(level);
-      const withinBottom = !Number.isFinite(bottom) || elevation >= bottom - 1e-4;
-      const withinTop = !Number.isFinite(top) || elevation <= top + 1e-4;
-      if (withinBottom && withinTop) ids.add(levelId);
-    }
-    if (ids.size) return ids;
-
-    const inferred = inferVisibleLevelForDocument(document, elevation);
-    if (inferred?.id) {
-      const bottom = getLevelBottom(inferred);
-      const top = getLevelTop(inferred);
-      const withinBottom = !Number.isFinite(bottom) || elevation >= bottom - 1e-4;
-      const withinTop = !Number.isFinite(top) || elevation <= top + 1e-4;
-      if (withinBottom && withinTop) return new Set([String(inferred.id)]);
-    }
-  }
-
-  return new Set();
-}
-
-/**
- * Return whether a token elevation is outside every suppression target Level.
- *
- * @param {Token|null|undefined} token
- * @param {Set<string>|null|undefined} targetLevelIds
- * @returns {boolean}
- * @private
- */
-function tokenElevationIsOutsideSuppressionTargets(token, targetLevelIds) {
-  if (!(targetLevelIds?.size > 0)) return false;
-
-  const elevation = Number(token?.document?.elevation ?? token?.elevation ?? Number.NaN);
-  if (!Number.isFinite(elevation)) return false;
-
-  const scene = token?.document?.parent ?? canvas?.scene ?? null;
-  for (const levelId of targetLevelIds) {
-    const level = getSceneLevelById(levelId, scene);
-    if (!level) continue;
-
-    const bottom = getLevelBottom(level);
-    const top = getLevelTop(level);
-    const withinBottom = !Number.isFinite(bottom) || elevation >= bottom - 1e-4;
-    const withinTop = !Number.isFinite(top) || elevation <= top + 1e-4;
-    if (withinBottom && withinTop) return false;
-  }
-
-  return true;
-}
-
-/**
- * Return whether a token belongs to the currently viewed Level for suppression preservation purposes.
- *
- * This deliberately avoids `document.includedInLevel`, because native Levels can report a lower-Level token as included in the current view while it is only temporarily revealed by a hover/occlusion opening.
- *
- * @param {Token|null|undefined} token
- * @returns {boolean}
- * @private
- */
-function tokenIsOnCurrentCanvasLevelForSuppression(token) {
-  if (!canvas?.level) return true;
-
-  const located = documentLocatedInLevel(token?.document ?? token ?? null, canvas.level);
-  if (located !== null) return located;
-
-  const currentLevelId = String(fxmDocumentId(canvas.level)).trim();
-  if (!currentLevelId)
-    return isDocumentOnCurrentCanvasLevel(
-      token?.document ?? null,
-      token?.document?.elevation ?? token?.elevation ?? Number.NaN,
-    );
-
-  const tokenLevelIds = getTokenSuppressionLevelIds(token, token?.document?.parent ?? canvas?.scene ?? null);
-  if (tokenLevelIds.size) return tokenLevelIds.has(currentLevelId);
-
-  return !tokenElevationIsOutsideSuppressionTargets(token, new Set([currentLevelId]));
-}
-
-/**
- * Return whether a token is visible or revealed enough to preserve from a screen-space suppression Region that targets other Levels.
- *
- * @param {Token|null|undefined} token
- * @returns {boolean}
- * @private
- */
-function tokenIsVisibleOrRevealedForSuppression(token, { allowOffCurrentSceneMaskReveal = false } = {}) {
-  if (!token || token.destroyed || token?.document?.hidden) return false;
-  if (token?.controlled === true) return true;
-
-  const onCurrentLevel = tokenIsOnCurrentCanvasLevelForSuppression(token);
-
-  /**
-   * Direct token hover is the most reliable signal for native Levels' local lower-Level reveal aperture. Do not require the broader upper-surface helper to also report a reveal here: while viewing the Region's assigned Level, Foundry can expose a lower-Level token through its own hover path without making the token appear to belong to the current Level.
-   */
-  if (!onCurrentLevel && tokenIsDirectlyHoveredForSuppression(token)) return true;
-
-  const sceneMaskVisible = sceneMaskContainsTokenCenterForSuppression(token);
-  if (sceneMaskVisible === true && (onCurrentLevel || allowOffCurrentSceneMaskReveal)) return true;
-
-  try {
-    if (tokenUpperLevelRevealAllowsBelowTokenMask(token, { requireDirectHoverForSceneMask: !onCurrentLevel }))
-      return true;
-  } catch (err) {
-    logger.debug("FXMaster:", err);
-  }
-
-  const mesh = token?.mesh ?? token?.sprite ?? token;
-  if (!displayObjectContributesVisiblePixels(mesh)) return false;
-
-  /**
-   * For off-current Levels, a live mesh can remain around while Foundry clips it through the Level scene mask. Avoid preserving it unless the scene mask or native reveal helpers above confirmed it is actually visible.
-   */
-  if (!onCurrentLevel) return false;
-
-  return true;
-}
-
-/**
- * Return whether Foundry currently considers the token itself hovered.
- *
- * This is intentionally stricter than hovering a higher-Level overlay. The lower-Level reveal aperture is restored only when the lower token is directly hovered or controlled.
- *
- * @param {Token|null|undefined} token
- * @returns {boolean}
- * @private
- */
-function tokenIsDirectlyHoveredForSuppression(token) {
-  if (!token || token.destroyed) return false;
-  if (token.hover === true || token.hovered === true) return true;
-
-  const hovered = [canvas?.tokens?.hover, token?.layer?.hover, canvas?.activeLayer?.hover].filter(Boolean);
-  const tokenId = token?.document?.id ?? token?.id ?? null;
-  const tokenUuid = token?.document?.uuid ?? null;
-  for (const candidate of hovered) {
-    if (candidate === token) return true;
-    const candidateId = candidate?.document?.id ?? candidate?.id ?? null;
-    if (candidateId && tokenId && String(candidateId) === String(tokenId)) return true;
-    const candidateUuid = candidate?.document?.uuid ?? null;
-    if (candidateUuid && tokenUuid && candidateUuid === tokenUuid) return true;
-  }
-
-  return false;
-}
-
-/**
- * Return the only tokens that can trigger the direct lower-Level reveal path.
- *
- * Surface-scoped current-Level suppression is only needed when Foundry is revealing a lower-Level token through direct hover or explicit control. The old defensive path scanned every token for every target Level; this keeps the hot hover frame bounded to the active hover/control set.
- *
- * @returns {Token[]}
- * @private
- */
-function getSuppressionContextTokenPlaceables(context = null) {
-  if (Array.isArray(context?.tokenPlaceables)) return context.tokenPlaceables;
-  const tokens = Array.from(canvas?.tokens?.placeables ?? []);
-  if (context) context.tokenPlaceables = tokens;
-  return tokens;
-}
-
-function getDirectLowerLevelRevealCandidateTokensForSuppression(context = null) {
-  if (Array.isArray(context?.directLowerLevelRevealTokenCandidates))
-    return context.directLowerLevelRevealTokenCandidates;
-
-  const candidates = [];
-  const seen = new Set();
-  const push = (token) => {
-    if (!token || token.destroyed || token?.document?.hidden) return;
-    const documentName = String(token?.document?.documentName ?? token?.documentName ?? "");
-    if (documentName && documentName !== "Token") return;
-    const id = String(token?.document?.id ?? token?.id ?? "");
-    const key = id || token;
-    if (seen.has(key)) return;
-    seen.add(key);
-    candidates.push(token);
-  };
-
-  push(canvas?.tokens?.hover ?? null);
-  push(canvas?.activeLayer?.hover ?? null);
-  for (const token of canvas?.tokens?.controlled ?? []) push(token);
-
-  if (context) context.directLowerLevelRevealTokenCandidates = candidates;
-  return candidates;
-}
-
-/**
- * Return whether a token is authored below a suppression target Level.
- *
- * @param {Token|null|undefined} token
- * @param {any|null|undefined} targetLevel
- * @param {Set<string>|null|undefined} tokenLevelIds
- * @returns {boolean}
- * @private
- */
-function tokenIsBelowSuppressionTargetLevel(token, targetLevel, tokenLevelIds = null) {
-  if (!token || !targetLevel) return false;
-
-  if (tokenLevelIds?.size) {
-    for (const levelId of tokenLevelIds) {
-      const level = getSceneLevelById(levelId, token?.document?.parent ?? canvas?.scene ?? null);
-      if (level && levelIsBelowTargetLevel(level, targetLevel)) return true;
-    }
-  }
-
-  const tokenElevation = Number(token?.document?.elevation ?? token?.elevation ?? Number.NaN);
-  const targetBottom = getLevelBottom(targetLevel);
-  return Number.isFinite(tokenElevation) && Number.isFinite(targetBottom) && tokenElevation < targetBottom - 1e-4;
-}
-
-/**
- * Return whether a token is a directly revealed lower-/other-Level token for a current-Level suppression target.
- *
- * The diagnostic case that motivated this helper is: viewing Level 2, a Region assigned to Level 2 suppresses scene FX, and a Level 1 token is directly hovered. Foundry reveals the lower token through the Level 2 view, but a screen-space Region erase still suppresses lower-Level pixels. When that happens, the current-Level suppression Region needs to be clipped to the target Level's live surface coverage rather than applied as a broad 2D hole.
- *
- * @param {Token|null|undefined} token
- * @param {any|null|undefined} targetLevel
- * @param {Set<string>|null|undefined} targetLevelIds
- * @returns {boolean}
- * @private
- */
-function tokenIsDirectLowerLevelRevealForSuppressionTarget(token, targetLevel, targetLevelIds) {
-  if (!token || token.destroyed || token?.document?.hidden || !targetLevel || !(targetLevelIds?.size > 0)) return false;
-
-  const tokenLevelIds = getTokenSuppressionLevelIds(token, token?.document?.parent ?? canvas?.scene ?? null);
-  for (const levelId of tokenLevelIds) {
-    if (targetLevelIds.has(String(levelId))) return false;
-  }
-
-  if (!tokenLevelIds.size && !tokenElevationIsOutsideSuppressionTargets(token, targetLevelIds)) return false;
-  if (!tokenIsBelowSuppressionTargetLevel(token, targetLevel, tokenLevelIds)) return false;
-
-  return token?.controlled === true || tokenIsDirectlyHoveredForSuppression(token);
-}
-
-/**
- * Return whether a current-Level suppression target has an active directly revealed lower-/other-Level token anywhere in the current view.
- *
- * This deliberately does not require overlap with the Region shape. The leak is caused by switching Foundry into a lower-Level reveal state while the current Level is viewed; once that state exists, a broad current-Level screen-space suppression hole can affect lower-Level pixels inside any same-Level Region.
- *
- * @param {any|null|undefined} targetLevel
- * @param {Set<string>|null|undefined} targetLevelIds
- * @param {object|null} [context]
- * @returns {boolean}
- * @private
- */
-function hasDirectLowerLevelRevealForSuppressionTarget(targetLevel, targetLevelIds, context = null) {
-  if (!targetLevel || !(targetLevelIds?.size > 0) || !canvas?.tokens) return false;
-
-  const cacheKey = `${targetLevel?.id ?? ""}:${getLevelIdsCacheKey(targetLevelIds)}:direct-lower-reveal`;
-  const cache = context?.currentLevelSurfaceScopedSuppressionByKey ?? null;
-  if (cache?.has(cacheKey)) return (cache.get(cacheKey)?.size ?? 0) > 0;
-
-  let active = false;
-  for (const token of getDirectLowerLevelRevealCandidateTokensForSuppression(context)) {
-    if (tokenIsDirectLowerLevelRevealForSuppressionTarget(token, targetLevel, targetLevelIds)) {
-      active = true;
-      break;
-    }
-  }
-
-  const value = active ? new Set(targetLevelIds) : new Set();
-  cache?.set(cacheKey, value);
-  return active;
-}
-
-/**
- * Return Level ids whose visible target surfaces should be used to clip a current-Level Region suppression hole.
- *
- * Current-Level suppression normally uses the Region's 2D shape. That is fast, but native Levels can reveal lower-Level content while the current Level remains selected. During that state, a broad 2D erase affects the lower-Level pixels even when the Region is assigned only to the current Level. Clipping the erase to the assigned/current Level's live surface objects keeps suppression Level-scoped without depending on Foundry private APIs.
- *
- * @param {foundry.abstract.Document|null|undefined} document
- * @param {any|null|undefined} targetLevel
- * @param {Set<string>|null|undefined} regionLevelIds
- * @param {Set<string>|null|undefined} protectedLevelIds
- * @param {object|null} [context]
- * @returns {Set<string>}
- * @private
- */
-function getCurrentLevelSurfaceScopedSuppressionLevelIds(
-  document,
-  targetLevel,
-  regionLevelIds,
-  protectedLevelIds,
-  context = null,
-) {
-  if (!canvas?.level || !document || !targetLevel || !(regionLevelIds?.size > 0)) return new Set();
-
-  const currentLevelId = String(fxmDocumentId(canvas.level)).trim();
-  const targetLevelId = String(fxmDocumentId(targetLevel)).trim();
-  if (!currentLevelId || !targetLevelId || currentLevelId !== targetLevelId) return new Set();
-  if (!regionLevelIds.has(currentLevelId)) return new Set();
-
-  const allowed = protectedLevelIds?.size
-    ? new Set(Array.from(protectedLevelIds).map(String).filter(Boolean))
-    : new Set([currentLevelId]);
-  if (!allowed.size) return new Set();
-  if (!hasDirectLowerLevelRevealForSuppressionTarget(targetLevel, allowed, context)) return new Set();
-
-  return allowed;
-}
-
-/**
- * Return the approximate native-Level reveal radius for an off-target token.
- *
- * @param {Token|null|undefined} token
- * @returns {number}
- * @private
- */
-function getTokenSuppressionRevealRadius(token) {
-  const candidates = [];
-  try {
-    const occludableRadius = token?.document?.occludable?.radius;
-    const lightRadius = typeof token?.getLightRadius === "function" ? token.getLightRadius(occludableRadius) : NaN;
-    candidates.push(lightRadius);
-  } catch (err) {
-    logger.debug("FXMaster:", err);
-  }
-
-  const gridSize = Number(canvas?.grid?.size ?? canvas?.dimensions?.size ?? 1) || 1;
-  candidates.push(
-    token?.externalRadius,
-    token?.document?.occludable?.radius,
-    token?.bounds?.width ? token.bounds.width / 2 : NaN,
-    token?.bounds?.height ? token.bounds.height / 2 : NaN,
-    token?.w ? token.w / 2 : NaN,
-    token?.h ? token.h / 2 : NaN,
-    gridSize * 0.75,
-  );
-
-  const radius = Math.max(
-    0,
-    ...candidates.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0),
-  );
-
-  /**
-   * Match Foundry's native occlusion aperture scale. The native occlusion mask draws a circle using max(token.externalRadius, token.getLightRadius(token occludable radius)) and does not clamp that radius to a few grid spaces. A cap here can leave suppression active around the outer part of a revealed lower-Level aperture.
-   */
-  return Math.max(1, radius);
-}
-
-/**
- * Return a lightweight world-space shape that mirrors the local lower-Level token reveal aperture closely enough for suppression preservation.
- *
- * @param {Token|null|undefined} token
- * @returns {object|null}
- * @private
- */
-function buildTokenSuppressionRevealShape(token) {
-  const center = token?.center ?? token?.bounds?.center ?? null;
-  let x = Number(center?.x);
-  let y = Number(center?.y);
-
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    const gridSize = Number(canvas?.grid?.size ?? canvas?.dimensions?.size ?? 1) || 1;
-    const doc = token?.document ?? null;
-    const tx = Number(doc?.x ?? token?.x ?? Number.NaN);
-    const ty = Number(doc?.y ?? token?.y ?? Number.NaN);
-    const tw = Number(doc?.width ?? token?.w ?? token?.width ?? 1) * gridSize;
-    const th = Number(doc?.height ?? token?.h ?? token?.height ?? 1) * gridSize;
-    if (!Number.isFinite(tx) || !Number.isFinite(ty)) return null;
-    x = tx + (Number.isFinite(tw) ? tw / 2 : gridSize / 2);
-    y = ty + (Number.isFinite(th) ? th / 2 : gridSize / 2);
-  }
-
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-
-  const radius = getTokenSuppressionRevealRadius(token);
-  return {
-    type: "circle",
-    source: "token-reveal",
-    tokenId: String(token?.document?.id ?? token?.id ?? ""),
-    x,
-    y,
-    radius,
-  };
-}
-
-/**
- * Collect visibly revealed token display objects whose Levels are outside the Region suppression target set.
- *
- * Region suppression masks are screen-space. A Level-scoped Region should not suppress lower-Level tokens that Foundry is currently revealing through a hover/occlusion opening unless that lower Level is also assigned to the Region.
- *
- * @param {any|null|undefined} targetLevel
- * @param {{ assignedLevelIds?: Set<string>|null, protectedLevelIds?: Set<string>|null, context?: object|null }} [options]
- * @returns {PIXI.DisplayObject[]}
- * @private
- */
-function collectVisibleOtherLevelTokenPreservationForTargetLevel(
-  targetLevel,
-  { assignedLevelIds = null, protectedLevelIds = null, context = null } = {},
-) {
-  if (!targetLevel || !canvas?.tokens) return { objects: [], shapes: [] };
-
-  const targetLevelIds = new Set(
-    Array.from(assignedLevelIds?.size ? assignedLevelIds : protectedLevelIds ?? [])
-      .map(String)
-      .filter(Boolean),
-  );
-  if (targetLevel?.id) targetLevelIds.add(String(targetLevel.id));
-  if (!targetLevelIds.size) return { objects: [], shapes: [] };
-
-  const cacheKey = `${targetLevel?.id ?? ""}:${getLevelIdsCacheKey(targetLevelIds)}:tokens-preserve`;
-  const cache = context?.visibleOtherLevelTokenPreservationByKey ?? null;
-  if (cache?.has(cacheKey)) return cache.get(cacheKey) ?? { objects: [], shapes: [] };
-
-  const remember = (value) => {
-    const normalized = value ?? { objects: [], shapes: [] };
-    cache?.set(cacheKey, normalized);
-    return normalized;
-  };
-
-  const objects = [];
-  const shapes = [];
-  const seenObjects = new Set();
-  const seenShapes = new Set();
-  const push = (object) => {
-    if (!object || object.destroyed || seenObjects.has(object)) return;
-    seenObjects.add(object);
-    objects.push(object);
-  };
-
-  const scene = canvas?.scene ?? null;
-  for (const token of getSuppressionContextTokenPlaceables(context)) {
-    if (!tokenIsVisibleOrRevealedForSuppression(token, { allowOffCurrentSceneMaskReveal: true })) continue;
-
-    const tokenLevelIds = getTokenSuppressionLevelIds(token, token?.document?.parent ?? scene);
-    let intersectsTarget = false;
-    for (const levelId of tokenLevelIds) {
-      if (targetLevelIds.has(String(levelId))) {
-        intersectsTarget = true;
-        break;
-      }
-    }
-    if (intersectsTarget) continue;
-
-    if (!tokenLevelIds.size && !tokenElevationIsOutsideSuppressionTargets(token, targetLevelIds)) continue;
-
-    const tokenRevealsLowerLevel =
-      tokenIsBelowSuppressionTargetLevel(token, targetLevel, tokenLevelIds) &&
-      (token?.controlled === true ||
-        tokenIsDirectlyHoveredForSuppression(token) ||
-        sceneMaskContainsTokenCenterForSuppression(token) === true);
-
-    /**
-     * Add the reveal-aperture shape before requiring the token mesh itself to be renderable. Native Levels can reveal a lower token through an occlusion aperture while the token placeable/mesh is still clipped or not contributing visible pixels according to PIXI flags. The shape is what protects the lower-Level aperture from a current-Level Region suppression mask.
-     */
-    if (tokenRevealsLowerLevel) {
-      const shape = buildTokenSuppressionRevealShape(token);
-      if (shape) {
-        const shapeKey = `${shape.tokenId}:${Math.round(shape.x * 10)}:${Math.round(shape.y * 10)}:${Math.round(
-          shape.radius * 10,
-        )}`;
-        if (!seenShapes.has(shapeKey)) {
-          seenShapes.add(shapeKey);
-          shapes.push(shape);
-        }
-      }
-    }
-
-    const mesh = token?.mesh ?? token?.sprite ?? token;
-    if (!displayObjectContributesVisiblePixels(mesh)) continue;
-    if (!displayObjectIntersectsViewportForSuppression(mesh)) continue;
-
-    push(mesh);
-  }
-
-  return remember({ objects, shapes });
-}
-
-/**
- * Return a compact signature for off-target token reveal apertures that should be restored into Level-scoped suppression allow masks.
- *
- * @param {PlaceableObject[]} regions
- * @param {Array<"particles"|"filters">} kinds
- * @returns {string}
- * @private
- */
-function buildDynamicSuppressionPreservationSignature(regions, kinds = ["particles", "filters"]) {
-  if (!canvas?.level) return "";
-
-  const context = createSuppressionRefreshContext();
-  if (!getDirectLowerLevelRevealCandidateTokensForSuppression(context).length) return "";
-
-  const requested = new Set(kinds ?? []);
-  const wantsParticles = requested.has("particles");
-  const wantsFilters = requested.has("filters");
-  if (!wantsParticles && !wantsFilters) return "";
-
-  const parts = [];
-
-  for (const region of regions ?? []) {
-    const doc = region?.document ?? null;
-    if (!doc) continue;
-    if (!regionDocumentCanApplyInCurrentView(doc, doc?.parent ?? canvas?.scene ?? null)) continue;
-
-    const regionLevelIds = getDocumentAssignedLevelIds(doc, doc?.parent ?? canvas?.scene ?? null);
-    if (!(regionLevelIds?.size > 0)) continue;
-
-    const summary = getSuppressionBehaviorSummary(doc, context);
-    const hasRelevantSuppression =
-      ((wantsParticles || wantsFilters) &&
-        summary.hasWeather &&
-        computeRegionGatePass(region, { behaviorType: SUPPRESS_WEATHER })) ||
-      (wantsParticles &&
-        !!summary.particleBehaviors.length &&
-        computeRegionGatePass(region, { behaviorType: SUPPRESS_SCENE_PARTICLES })) ||
-      (wantsFilters &&
-        !!summary.filterBehaviors.length &&
-        computeRegionGatePass(region, { behaviorType: SUPPRESS_SCENE_FILTERS }));
-
-    if (!hasRelevantSuppression) continue;
-
-    const targetLevel = resolveSuppressionRegionTargetLevel(doc);
-    if (!targetLevel) continue;
-
-    const protectedLevelIds = getSuppressionAllowedLevelIds(doc, targetLevel);
-    const preservation = collectVisibleOtherLevelTokenPreservationForTargetLevel(targetLevel, {
-      assignedLevelIds: protectedLevelIds,
-      protectedLevelIds,
-      context,
-    });
-
-    const shapes = preservation?.shapes ?? [];
-    if (!shapes.length) continue;
-
-    parts.push(
-      [
-        doc?.id ?? region?.id ?? "",
-        doc?.uuid ?? "",
-        shapes
-          .map((shape) =>
-            [
-              shape.type ?? "",
-              shape.tokenId ?? "",
-              Number(shape.x ?? 0).toFixed(2),
-              Number(shape.y ?? 0).toFixed(2),
-              Number(shape.radius ?? 0).toFixed(2),
-              Number(shape.width ?? 0).toFixed(2),
-              Number(shape.height ?? 0).toFixed(2),
-            ].join("~"),
-          )
-          .join(";"),
-      ].join("|"),
-    );
-  }
-
-  return parts.sort().join("#");
 }
 
 /**
@@ -2551,36 +1842,18 @@ function buildSuppressionDescriptorSharedOptions(region, context = null) {
   const targetLevel = resolveSuppressionRegionTargetLevel(doc);
   const defaultProtectedLevelIds = getSuppressionAllowedLevelIds(doc, targetLevel);
   const nonCurrentObjectOnlyLevelIds = getAssignedNonCurrentVisibleLevelIds(doc);
-  const currentSurfaceScopedLevelIds = nonCurrentObjectOnlyLevelIds.size
-    ? new Set()
-    : getCurrentLevelSurfaceScopedSuppressionLevelIds(
-        doc,
-        targetLevel,
-        regionLevelIds,
-        defaultProtectedLevelIds,
-        context,
-      );
   /**
    * A current-Level suppression Region preserves visible, unassigned upper-Level artwork. Full-canvas Level textures require both the live SURFACE reveal mask and the public Define Surface footprint to prevent a visible Roof or upper-Level texture from restoring the entire Region.
    *
    * Non-current Level projection retains the existing flat object path.
    */
-  const objectOnlyLevelIds = nonCurrentObjectOnlyLevelIds.size
-    ? nonCurrentObjectOnlyLevelIds
-    : currentSurfaceScopedLevelIds;
+  const objectOnlyLevelIds = nonCurrentObjectOnlyLevelIds;
   let objectOnlySuppressObjects = objectOnlyLevelIds.size
     ? collectVisibleSurfaceObjectsForLevelIds(objectOnlyLevelIds, { context, includeTiles: true })
     : [];
   let suppressOnlyObjects = objectOnlyLevelIds.size > 0;
 
-  if (suppressOnlyObjects && !objectOnlySuppressObjects.length) {
-    if (currentSurfaceScopedLevelIds.size) {
-      suppressOnlyObjects = false;
-      objectOnlySuppressObjects = [];
-    } else {
-      return null;
-    }
-  }
+  if (suppressOnlyObjects && !objectOnlySuppressObjects.length) return null;
 
   const protectedLevelIds = suppressOnlyObjects ? objectOnlyLevelIds : defaultProtectedLevelIds;
   const currentLevelId = String(fxmDocumentId(getCanvasLevel()) ?? "");
@@ -2606,24 +1879,14 @@ function buildSuppressionDescriptorSharedOptions(region, context = null) {
           preserveSurfaceGroups: [],
         }
     : { preserveObjects: [], preserveSurfaceGroups: [] };
-  const otherLevelTokenPreservation =
-    !suppressOnlyObjects && targetLevel && regionLevelIds?.size
-      ? collectVisibleOtherLevelTokenPreservationForTargetLevel(targetLevel, {
-          assignedLevelIds: protectedLevelIds,
-          protectedLevelIds,
-          context,
-        })
-      : { objects: [], shapes: [] };
   const upperPreserveObjects = upperPreservation.preserveObjects ?? [];
   const upperPreserveSurfaceGroups = upperPreservation.preserveSurfaceGroups ?? [];
-  const combinedPreserveObjects = mergeDisplayObjectLists(upperPreserveObjects, otherLevelTokenPreservation.objects);
-  const preserveShapes = otherLevelTokenPreservation.shapes ?? [];
   const rawSuppressObjects = suppressOnlyObjects
     ? objectOnlySuppressObjects
     : targetLevel
     ? collectSuppressedUpperSurfaceObjectsForTargetLevel(targetLevel, {
         protectedLevelIds,
-        preserveObjects: combinedPreserveObjects,
+        preserveObjects: upperPreserveObjects,
         preserveSurfaceGroups: upperPreserveSurfaceGroups,
         context,
       })
@@ -2640,13 +1903,11 @@ function buildSuppressionDescriptorSharedOptions(region, context = null) {
         preserveSurfaceGroups: upperPreserveSurfaceGroups,
         suppressObjects: rawSuppressObjects,
       });
-  const preserveObjects = mergeDisplayObjectLists(orderedSurfaces.preserveObjects, otherLevelTokenPreservation.objects);
-
   return {
     suppressOnlyObjects,
-    preserveObjects,
+    preserveObjects: orderedSurfaces.preserveObjects,
     preserveSurfaceGroups: orderedSurfaces.preserveSurfaceGroups,
-    preserveShapes,
+    preserveShapes: [],
     suppressObjects: orderedSurfaces.suppressObjects,
     surfaceOperations: orderedSurfaces.surfaceOperations,
   };
@@ -2933,13 +2194,6 @@ export class SceneMaskManager {
     this._sharedCoverageRefreshFrameKey = null;
     this._sharedCoverageContentRevision = 0;
 
-    /**
-     * Dynamic signature for lower-/other-Level token reveal apertures restored into Level-scoped suppression masks.
-     * @type {string|null}
-     * @private
-     */
-    this._dynamicSuppressionPreservationSignature = null;
-
     /** @type {boolean} */
     this._baseParticlesSoft = false;
     /** @type {boolean} */
@@ -3055,86 +2309,6 @@ export class SceneMaskManager {
   }
 
   /**
-   * Return active scene-effect pipelines that can need dynamic lower-Level token reveal preservation under explicitly Level-scoped suppression Regions.
-   *
-   * @returns {Array<"particles"|"filters">}
-   * @private
-   */
-  _dynamicSuppressionPreservationKinds() {
-    if (!canvas?.level) return [];
-
-    if (!getDirectLowerLevelRevealCandidateTokensForSuppression().length) return [];
-
-    const regions = getRegionEffectPlaceablesForCurrentView(canvas?.scene ?? null);
-    let wantsParticles = false;
-    let wantsFilters = false;
-
-    for (const region of regions ?? []) {
-      const doc = region?.document ?? null;
-      if (!doc) continue;
-      if (!regionDocumentCanApplyInCurrentView(doc, doc?.parent ?? canvas?.scene ?? null)) continue;
-
-      const regionLevelIds = getDocumentAssignedLevelIds(doc, doc?.parent ?? canvas?.scene ?? null);
-      if (!(regionLevelIds?.size > 0)) continue;
-
-      const summary = getSuppressionBehaviorSummary(doc, null);
-      if (summary.hasWeather) {
-        wantsParticles = true;
-        wantsFilters = true;
-      }
-      if (summary.particleBehaviors.length) wantsParticles = true;
-      if (summary.filterBehaviors.length) wantsFilters = true;
-    }
-
-    const kinds = [];
-    if (wantsParticles && this._kindActive.particles) kinds.push("particles");
-    if (wantsFilters && this._kindActive.filters) kinds.push("filters");
-    return kinds;
-  }
-
-  /**
-   * Return whether compositor dynamic-state tracking should include token hover state even if no below-token/tile cutout is otherwise active.
-   *
-   * @returns {boolean}
-   */
-  needsDynamicLevelSuppressionPreservation() {
-    return this._dynamicSuppressionPreservationKinds().length > 0;
-  }
-
-  /**
-   * Public wrapper used by the compositor's per-frame dynamic-state sync.
-   *
-   * Hover-revealed lower-Level token apertures can change independently of below-token/below-tile coverage. Let the compositor ask the scene mask manager to rebuild the base suppression masks when those apertures change, while keeping the expensive rebuild gated by a compact signature.
-   *
-   * @returns {boolean} True when a full base suppression refresh was performed.
-   */
-  refreshDynamicSuppressionPreservationIfNeeded() {
-    return this._refreshDynamicSuppressionPreservationIfNeeded();
-  }
-
-  /**
-   * Rebuild base suppression masks when off-target token reveal apertures change.
-   *
-   * @returns {boolean} True when a full base suppression refresh was performed.
-   * @private
-   */
-  _refreshDynamicSuppressionPreservationIfNeeded() {
-    const kinds = this._dynamicSuppressionPreservationKinds();
-    if (!kinds.length) {
-      this._dynamicSuppressionPreservationSignature = null;
-      return false;
-    }
-
-    const regions = getRegionEffectPlaceablesForCurrentView(canvas?.scene ?? null);
-    const signature = buildDynamicSuppressionPreservationSignature(regions, kinds);
-    if (signature === this._dynamicSuppressionPreservationSignature) return false;
-
-    this._dynamicSuppressionPreservationSignature = signature;
-    this._refreshImpl(kinds);
-    return true;
-  }
-
-  /**
    * Return the active world-atlas base mask, if shared coverage should use world-space coordinates.
    *
    * @returns {PIXI.RenderTexture|null}
@@ -3151,6 +2325,17 @@ export class SceneMaskManager {
       if (getMaskRenderTextureWorldAtlas(rt)) return rt;
     }
     return null;
+  }
+
+  /**
+   * Return active below-object coverage requirements by effect pipeline.
+   *
+   * @returns {{filters:boolean,particles:boolean,any:boolean}}
+   */
+  getBelowObjectCoverageDemand() {
+    const filters = !!(this._belowTokensNeeded.filters || this._belowTilesNeeded.filters);
+    const particles = !!(this._belowTokensNeeded.particles || this._belowTilesNeeded.particles);
+    return { filters, particles, any: filters || particles };
   }
 
   /**
@@ -3921,8 +3106,6 @@ export class SceneMaskManager {
 
     const needTokens = this._belowTokensNeeded.particles || this._belowTokensNeeded.filters;
     const needTiles = this._belowTilesNeeded.particles || this._belowTilesNeeded.filters;
-
-    if (this._refreshDynamicSuppressionPreservationIfNeeded()) return;
 
     if (!needTokens && !needTiles) {
       this._ensureSharedCoverageTextures({ needTokens, needTiles, force });

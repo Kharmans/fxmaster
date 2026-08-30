@@ -896,6 +896,8 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     this._lastDarknessLevel = getSceneDarknessLevel();
 
     this._particleBackgroundTrailStores = new Map();
+    this._particleBackgroundRuntimeActive = false;
+    this._particleBackgroundMovementRuntimeActive = false;
     this._particleTrailTokenPositions = new Map();
     this._particleTrailStampedTokenEnds = new Map();
     this._particleTrailDirtyTokenIds = new Set();
@@ -918,6 +920,8 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     this._particleTrailPersistedHistoryRevision = -1;
     this._particleTrailPersistedHistoryEvents = [];
     this._particleTrailLastHistoryRestoreKey = "";
+    this._particleBackgroundMovementConsumersActive = false;
+    this._particleBackgroundMovementConsumersDirty = true;
 
     this.renderable = false;
   }
@@ -991,6 +995,10 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     this._particleTrailPersistedHistoryRevision = -1;
     this._particleTrailPersistedHistoryEvents = [];
     this._particleTrailLastHistoryRestoreKey = "";
+    this._particleBackgroundMovementConsumersActive = false;
+    this._particleBackgroundMovementConsumersDirty = false;
+    this._particleBackgroundRuntimeActive = false;
+    this._particleBackgroundMovementRuntimeActive = false;
   }
 
   /**
@@ -1014,6 +1022,7 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     } catch (err) {
       logger.debug("FXMaster:", err);
     }
+    this._particleBackgroundMovementConsumersDirty = true;
   }
 
   /**
@@ -1041,6 +1050,7 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     );
     const enabled = !!descriptor && particleBackgroundEnabled(fx.__fxmOptions ?? {});
     if (!enabled) {
+      this._particleBackgroundMovementConsumersDirty = true;
       this._disableParticleBackgroundTrailStore(backgroundUid);
       this._destroyParticleBackgroundSurface(fx);
       return null;
@@ -1088,7 +1098,10 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
       }
     }
 
-    if (!surface) return null;
+    if (!surface) {
+      this._particleBackgroundMovementConsumersDirty = true;
+      return null;
+    }
 
     try {
       surface.configure?.({
@@ -1102,6 +1115,7 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     } catch (err) {
       logger.debug("FXMaster:", err);
     }
+    this._particleBackgroundMovementConsumersDirty = true;
 
     const display = surface.displayObject ?? null;
     if (!display || display.destroyed) {
@@ -1485,6 +1499,7 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
    */
   noteParticleTrailTokenMovement(tokenDocument, { changed = {}, userId = null } = {}) {
     if (!tokenDocument || tokenDocument.parent !== canvas?.scene) return;
+    if (!this.hasParticleBackgroundMovementConsumers()) return;
     const tokenId = String(tokenDocument.id ?? "").trim();
     const authorityUserId = String(userId ?? "").trim();
     if (!tokenId || !authorityUserId) return;
@@ -1521,6 +1536,7 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
    * @returns {void}
    */
   noteParticleTrailTokenControl(tokenOrDocument) {
+    if (!this.hasParticleBackgroundMovementConsumers()) return;
     const tokenId = String(tokenOrDocument?.id ?? tokenOrDocument?.document?.id ?? "").trim();
     if (!tokenId) return;
 
@@ -2072,6 +2088,22 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
     return trackingRecords;
   }
 
+  /**
+   * Return whether any live background surface consumes Token movement.
+   *
+   * @returns {boolean}
+   */
+  hasParticleBackgroundMovementConsumers() {
+    if (!this._particleBackgroundMovementConsumersDirty) {
+      return this._particleBackgroundMovementConsumersActive;
+    }
+
+    const records = this._collectParticleBackgroundSurfaceRecords();
+    this._particleBackgroundMovementConsumersActive = this._particleTrailTrackingRecords(records).length > 0;
+    this._particleBackgroundMovementConsumersDirty = false;
+    return this._particleBackgroundMovementConsumersActive;
+  }
+
   _particleTrailMovementCandidateIds(tick) {
     if (!this._particleTrailTokenPositions.size) return null;
 
@@ -2275,19 +2307,28 @@ export class ParticleEffectsLayer extends BaseEffectsLayer {
 
   _updateParticleBackgroundSurfaces() {
     const records = this._collectParticleBackgroundSurfaceRecords();
+    const movementWasActive = this._particleBackgroundMovementRuntimeActive;
+    const movementActive = this._particleTrailTrackingRecords(records).length > 0;
+    this._particleBackgroundMovementConsumersActive = movementActive;
+    this._particleBackgroundMovementConsumersDirty = false;
+
     if (!records.length) {
-      if (this._particleBackgroundRuntimeActive) {
-        this._particleBackgroundRuntimeActive = false;
-        this._updateParticleTokenTrails([], particleBackgroundMonotonicNow());
-      }
+      if (movementWasActive) this._updateParticleTokenTrails([], particleBackgroundMonotonicNow());
+      this._particleBackgroundRuntimeActive = false;
+      this._particleBackgroundMovementRuntimeActive = false;
       return;
     }
 
     this._particleBackgroundRuntimeActive = true;
+    this._particleBackgroundMovementRuntimeActive = movementActive;
     const now = particleBackgroundNow();
     const tick = particleBackgroundMonotonicNow();
-    this._restoreParticleBackgroundMovementHistory(records, { now, tick });
-    this._updateParticleTokenTrails(records, tick);
+    if (movementActive) {
+      this._restoreParticleBackgroundMovementHistory(records, { now, tick });
+      this._updateParticleTokenTrails(records, tick);
+    } else if (movementWasActive) {
+      this._updateParticleTokenTrails([], tick);
+    }
 
     for (const { surface, fx } of records) {
       try {

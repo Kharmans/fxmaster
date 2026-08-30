@@ -18,6 +18,7 @@ import {
 import { isEnabled } from "../settings.js";
 import { refreshSceneParticlesSuppressionMasks } from "../particle-effects/particle-effects-scene-manager.js";
 import { FilterEffectsSceneManager } from "../filter-effects/filter-effects-scene-manager.js";
+import { SceneMaskManager } from "../common/base-effects-scene-manager.js";
 
 /**
  * Build and return the shared hook context object.
@@ -304,22 +305,40 @@ export function createHookContext() {
     { key: "fxm:deferredSceneParticlesSuppressionRefresh" },
   );
 
+  /**
+   * Return the active below-object coverage requirements for Token-driven mask refreshes.
+   *
+   * @returns {{filters:boolean,particles:boolean,any:boolean}}
+   */
+  const tokenMaskRefreshDemand = () => {
+    try {
+      const demand = SceneMaskManager.instance.getBelowObjectCoverageDemand?.();
+      if (demand && typeof demand === "object") return demand;
+    } catch (err) {
+      logger.debug("FXMaster:", err);
+    }
+
+    const filters =
+      sceneWantsBelowTokensFilters() ||
+      sceneWantsBelowTilesFilters() ||
+      regionWantsBelowTokensFilters() ||
+      regionWantsBelowTilesFilters();
+    const particles =
+      sceneWantsBelowTokensParticles() ||
+      sceneWantsBelowTilesParticles() ||
+      regionWantsBelowTokensParticles() ||
+      regionWantsBelowTilesParticles();
+    return { filters, particles, any: filters || particles };
+  };
+
   const requestTokenMaskRefresh = coalesceNextFrame(
     function requestTokenMaskRefresh() {
       if (!isEnabled()) return;
 
-      const needFilterCoverage =
-        sceneWantsBelowTokensFilters() ||
-        sceneWantsBelowTilesFilters() ||
-        regionWantsBelowTokensFilters() ||
-        regionWantsBelowTilesFilters();
-      const needParticleCoverage =
-        sceneWantsBelowTokensParticles() ||
-        sceneWantsBelowTilesParticles() ||
-        regionWantsBelowTokensParticles() ||
-        regionWantsBelowTilesParticles();
+      const demand = tokenMaskRefreshDemand();
+      if (!demand.any) return;
 
-      if (needFilterCoverage) {
+      if (demand.filters) {
         try {
           FilterEffectsSceneManager.instance.refreshSceneFilterSuppressionMasks();
         } catch (err) {
@@ -333,7 +352,7 @@ export function createHookContext() {
         }
       }
 
-      if (needParticleCoverage) {
+      if (demand.particles) {
         try {
           refreshSceneParticlesSuppressionMasks?.();
         } catch (err) {
@@ -499,6 +518,7 @@ export function createHookContext() {
     requestRegionMaskRefreshAll,
     requestSceneParticlesSuppressionRefresh,
     requestDeferredSceneParticlesSuppressionRefresh,
+    tokenMaskRefreshDemand,
     requestTokenMaskRefresh,
     bind,
     unbind,

@@ -21,7 +21,11 @@ import { SuppressSceneParticlesBehaviorType } from "./particle-effects/suppress-
 import { FilterEffectsSceneManager } from "./filter-effects/filter-effects-scene-manager.js";
 import { FilterEffectsLayer } from "./filter-effects/filter-effects-layer.js";
 import { FilterRegionBehaviorType } from "./filter-effects/filter-effects-region-behavior.js";
-import { FXMasterFilterEffectMixin } from "./filter-effects/filters/mixins/filter.js";
+import {
+  FILTER_PRESENTATION_PASSES,
+  FILTER_PRESENTATION_PASS_VALUES,
+  FXMasterFilterEffectMixin,
+} from "./filter-effects/filters/mixins/filter.js";
 import { SuppressSceneFiltersBehaviorType } from "./filter-effects/suppress-scene-filters-region-behavior.js";
 import { SpecialEffectsLayer } from "./special-effects/special-effects-layer.js";
 import customVertex2D from "./filter-effects/filters/shaders/custom-vertex-2d.vert";
@@ -88,6 +92,8 @@ CONFIG.fxmaster.particleBackgroundNow = particleBackgroundNow;
 CONFIG.fxmaster.particleBackgroundMonotonicNow = particleBackgroundMonotonicNow;
 CONFIG.fxmaster.customVertex2D = customVertex2D;
 CONFIG.fxmaster.FXMasterFilterEffectMixin = FXMasterFilterEffectMixin;
+CONFIG.fxmaster.filterPresentationPasses = FILTER_PRESENTATION_PASSES;
+CONFIG.fxmaster.filterPresentationPassValues = FILTER_PRESENTATION_PASS_VALUES;
 CONFIG.fxmaster.regionWorldBoundsAligned = regionWorldBoundsAligned;
 CONFIG.fxmaster.regionWorldBounds = regionWorldBounds;
 CONFIG.fxmaster.regionContainsPoint = regionContainsPoint;

@@ -3,20 +3,19 @@ import fragment from "./shaders/predator.frag";
 import { MAX_EDGES } from "../../constants.js";
 import { clampRange, num } from "../../utils.js";
 
-const UI_PERIOD_MAX = 0.1;
-const PERIOD_RESPONSE_GAMMA = 1.0;
-const SPEED_MAX_PX = 160.0;
-const REF_WIDTH_PX = 4.0;
+const INTERNAL_SPEED_MAX = 0.1;
+const INTERNAL_SPEED_DEFAULT = 0.03;
+const SPEED_RESPONSE_GAMMA = 1.0;
+const SPEED_MAX_WORLD_PX = 160.0;
+const REF_WIDTH_WORLD_PX = 4.0;
 const WIDTH_EXP = 0.75;
+const INTERNAL_LINE_WIDTH_MIN = 0.5;
+const INTERNAL_LINE_WIDTH_MAX = 20.0;
+const NORMALIZED_LINE_WIDTH_DEFAULT = 0.5;
+const INTERNAL_LINE_WIDTH_DEFAULT =
+  INTERNAL_LINE_WIDTH_MIN + NORMALIZED_LINE_WIDTH_DEFAULT * (INTERNAL_LINE_WIDTH_MAX - INTERNAL_LINE_WIDTH_MIN);
 
-/**
- * PredatorFilter
- * --------------
- * Scanline/thermal "predator vision" effect.
- * - Region masks for per-region visibility.
- * - Analytic (rect/ellipse) and polygon fades (SDF/edge-based).
- * - Time-based noise and animated scan motion with width-aware AA.
- */
+/** Applies an animated, world-locked thermal scan treatment. */
 export class PredatorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   /**
    * Construct a PredatorFilter and initialize uniforms.
@@ -24,6 +23,7 @@ export class PredatorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
    * @param {string} [id] - Stable id for filter instances.
    */
   constructor(options = {}, id) {
+    options = discardFormerPeriodOption(options);
     super(options, id, PIXI.Filter.defaultVertex, preprocessShader(fragment));
 
     const u = (this.uniforms ??= {});
@@ -36,18 +36,24 @@ export class PredatorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
 
     u.time = 0.0;
     u.seed = Math.random() * 1000.0;
-    u.speedPx = 0.0;
-    u.lineWidthPx = 3.0;
-    u.noiseAmt = 0.1;
-    u.contrast = 1.5;
-    u.aaPx = 1.0;
+    u.speedWorld = 0.0;
+    u.lineWidthWorld = INTERNAL_LINE_WIDTH_DEFAULT;
+    u.noiseAmt = 0.0;
+    u.scanlineStrength = 1.0;
+    u.thermalStrength = 0.0;
+    u.thermalContrast = 0.0;
+    u.edgeDefinition = 0.0;
+    u.stripeContrast = 1.5;
+    u.aaCssPx = 1.0;
 
-    this._period = 0.0;
-    this.period = num(options?.period?.value ?? options?.period, 0.0);
-    this.lineWidth = num(options?.lineWidth?.value ?? options?.lineWidth, 3.0);
-    this.noise = num(options?.noise?.value ?? options?.noise, 0.1);
-
-    this._tickerFn = null;
+    this._speed = 0.0;
+    this.speed = num(this.options?.speed, INTERNAL_SPEED_DEFAULT);
+    this.lineWidth = num(this.options?.lineWidth, INTERNAL_LINE_WIDTH_DEFAULT);
+    this.noise = num(this.options?.noise, 0.0);
+    this.scanlineStrength = num(this.options?.scanlineStrength, 1.0);
+    this.thermalStrength = num(this.options?.thermalStrength, 0.0);
+    this.thermalContrast = num(this.options?.thermalContrast, 0.0);
+    this.edgeDefinition = num(this.options?.edgeDefinition, 0.0);
 
     this.configure(options);
   }
@@ -67,69 +73,201 @@ export class PredatorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
       belowTokens: { label: "FXMASTER.Params.BelowTokens", type: "checkbox", value: false },
       belowTiles: { label: "FXMASTER.Params.BelowTiles", type: "checkbox", value: false },
       soundFxEnabled: { label: "FXMASTER.Params.SoundFxEnabled", type: "checkbox", value: false },
-      noise: { label: "FXMASTER.Params.Noise", type: "range", max: 1.0, min: 0.0, step: 0.1, value: 0.1 },
-      period: { label: "FXMASTER.Params.Speed", type: "range", max: 0.1, min: 0.0, step: 0.001, value: 0.001 },
-      lineWidth: { label: "FXMASTER.Params.LineWidth", type: "range", max: 10.0, min: 0.5, step: 0.5, value: 3.0 },
+      thermalStrength: {
+        label: "FXMASTER.Params.ThermalStrength",
+        type: "range",
+        max: 1.0,
+        min: 0.0,
+        step: 0.05,
+        value: 0.0,
+        tooltip: "FXMASTER.ParamTooltips.PredatorThermalStrength",
+      },
+      thermalContrast: {
+        label: "FXMASTER.Params.ThermalContrast",
+        type: "range",
+        max: 1.0,
+        min: 0.0,
+        step: 0.05,
+        value: 0.0,
+        tooltip: "FXMASTER.ParamTooltips.PredatorThermalContrast",
+      },
+      edgeDefinition: {
+        label: "FXMASTER.Params.EdgeDefinition",
+        type: "range",
+        max: 1.0,
+        min: 0.0,
+        step: 0.05,
+        value: 0.0,
+        tooltip: "FXMASTER.ParamTooltips.PredatorEdgeDefinition",
+      },
+      scanlineStrength: {
+        label: "FXMASTER.Params.ScanlineStrength",
+        type: "range",
+        max: 1.0,
+        min: 0.0,
+        step: 0.05,
+        value: 1.0,
+        tooltip: "FXMASTER.ParamTooltips.PredatorScanlineStrength",
+      },
+      noise: {
+        label: "FXMASTER.Params.SensorNoise",
+        type: "range",
+        max: 1.0,
+        min: 0.0,
+        step: 0.1,
+        value: 0.0,
+        tooltip: "FXMASTER.ParamTooltips.PredatorNoise",
+      },
+      speed: {
+        label: "FXMASTER.Params.ScanlineSpeed",
+        type: "range",
+        max: INTERNAL_SPEED_MAX,
+        min: 0.0,
+        step: 0.001,
+        value: INTERNAL_SPEED_DEFAULT,
+        tooltip: "FXMASTER.ParamTooltips.PredatorSpeed",
+      },
+      lineWidth: {
+        label: "FXMASTER.Params.ScanlineWidth",
+        type: "range",
+        min: 0.0,
+        max: 1.0,
+        step: 0.01,
+        decimals: 2,
+        value: NORMALIZED_LINE_WIDTH_DEFAULT,
+        tooltip: "FXMASTER.ParamTooltips.PredatorLineWidth",
+        __fxmInternalRange: {
+          min: INTERNAL_LINE_WIDTH_MIN,
+          max: INTERNAL_LINE_WIDTH_MAX,
+          value: INTERNAL_LINE_WIDTH_DEFAULT,
+          step: 0.5,
+          decimals: 1,
+        },
+      },
     };
   }
 
   /**
-   * Neutral (no-op) option values.
-   * @returns {{noise:number,period:number,lineWidth:number}}
+   * Neutral option values.
+   * @returns {Record<string, number>} Neutral parameter values.
    */
   static get neutral() {
-    return { noise: 0.0, period: 0.0, lineWidth: 3.0 };
+    return {
+      noise: 0.0,
+      speed: 0.0,
+      lineWidth: INTERNAL_LINE_WIDTH_DEFAULT,
+      scanlineStrength: 0.0,
+      thermalStrength: 0.0,
+      thermalContrast: 0.0,
+      edgeDefinition: 0.0,
+    };
   }
 
-  /** @returns {number} Noise amount in [0,1]. */ get noise() {
+  /** @returns {number} Noise amount in [0,1]. */
+  get noise() {
     return this.uniforms.noiseAmt;
   }
-  /** @param {number} v */ set noise(v) {
-    this.uniforms.noiseAmt = clampRange(num(v, 0.1), 0.0, 1.0);
+
+  /** @param {number} value */
+  set noise(value) {
+    this.uniforms.noiseAmt = clampRange(num(value, 0.0), 0.0, 1.0);
   }
 
-  /** @returns {number} UI period in [0, UI_PERIOD_MAX]. */ get period() {
-    return this._period;
-  }
-  /** @param {number} v */ set period(v) {
-    this._period = Math.max(0, Math.min(UI_PERIOD_MAX, Number(v) || 0));
-    const f = periodNorm(this._period);
-    const w = Math.max(1.0, this.uniforms.lineWidthPx || 3.0);
-    const wf = Math.pow(w / REF_WIDTH_PX, WIDTH_EXP);
-    this.uniforms.speedPx = -(f * SPEED_MAX_PX) * wf;
-    this.uniforms.aaPx = aaFrom(this.uniforms.speedPx, w);
+  /** @returns {number} Scanline intensity in [0,1]. */
+  get scanlineStrength() {
+    return this.uniforms.scanlineStrength;
   }
 
-  /** @returns {number} Scanline width in CSS px. */ get lineWidth() {
-    return this.uniforms.lineWidthPx;
+  /** @param {number} value */
+  set scanlineStrength(value) {
+    this.uniforms.scanlineStrength = clampRange(num(value, 1.0), 0.0, 1.0);
   }
-  /** @param {number} v */ set lineWidth(v) {
-    const w = Math.max(1.0, Number(v) || 3.0);
-    this.uniforms.lineWidthPx = w;
-    const f = periodNorm(this._period);
-    const wf = Math.pow(w / REF_WIDTH_PX, WIDTH_EXP);
-    this.uniforms.speedPx = -(f * SPEED_MAX_PX) * wf;
-    this.uniforms.aaPx = aaFrom(this.uniforms.speedPx, w);
+
+  /** @returns {number} False-color thermal blend in [0,1]. */
+  get thermalStrength() {
+    return this.uniforms.thermalStrength;
+  }
+
+  /** @param {number} value */
+  set thermalStrength(value) {
+    this.uniforms.thermalStrength = clampRange(num(value, 0.0), 0.0, 1.0);
+  }
+
+  /** @returns {number} Thermal contrast in [0,1]. */
+  get thermalContrast() {
+    return this.uniforms.thermalContrast;
+  }
+
+  /** @param {number} value */
+  set thermalContrast(value) {
+    this.uniforms.thermalContrast = clampRange(num(value, 0.0), 0.0, 1.0);
+  }
+
+  /** @returns {number} Thermal edge emphasis in [0,1]. */
+  get edgeDefinition() {
+    return this.uniforms.edgeDefinition;
+  }
+
+  /** @param {number} value */
+  set edgeDefinition(value) {
+    this.uniforms.edgeDefinition = clampRange(num(value, 0.0), 0.0, 1.0);
+  }
+
+  /** @returns {number} Effective scan speed in [0, INTERNAL_SPEED_MAX]. */
+  get speed() {
+    return this._speed;
+  }
+
+  /** @param {number} value */
+  set speed(value) {
+    this._speed = Math.max(0, Math.min(INTERNAL_SPEED_MAX, Number(value) || 0));
+    const factor = speedNorm(this._speed);
+    const width = Math.max(1.0, this.uniforms.lineWidthWorld || INTERNAL_LINE_WIDTH_DEFAULT);
+    const widthFactor = Math.pow(width / REF_WIDTH_WORLD_PX, WIDTH_EXP);
+    this.uniforms.speedWorld = -(factor * SPEED_MAX_WORLD_PX) * widthFactor;
+    this.uniforms.aaCssPx = aaFrom(this.uniforms.speedWorld, width);
+  }
+
+  /** @returns {number} Scanline width in world pixels. */
+  get lineWidth() {
+    return this.uniforms.lineWidthWorld;
+  }
+
+  /** @param {number} value */
+  set lineWidth(value) {
+    const numeric = Number(value);
+    const width = Number.isFinite(numeric)
+      ? Math.max(INTERNAL_LINE_WIDTH_MIN, Math.min(INTERNAL_LINE_WIDTH_MAX, numeric))
+      : INTERNAL_LINE_WIDTH_DEFAULT;
+    this.uniforms.lineWidthWorld = width;
+    const factor = speedNorm(this._speed);
+    const widthFactor = Math.pow(width / REF_WIDTH_WORLD_PX, WIDTH_EXP);
+    this.uniforms.speedWorld = -(factor * SPEED_MAX_WORLD_PX) * widthFactor;
+    this.uniforms.aaCssPx = aaFrom(this.uniforms.speedWorld, width);
   }
 
   /**
-   * Configure filter uniforms and state from options. Accepts direct values or { value } wrappers; updates mask options and fades.
+   * Configure filter uniforms and state from options.
    * @param {object} [options={}] - Options payload.
    */
   configure(options = {}) {
-    super.configure(options);
-    const o = this.options;
+    super.configure(discardFormerPeriodOption(options));
+    const prepared = this.options;
 
-    if (o.noise !== undefined) this.noise = o.noise;
-    if (o.period !== undefined) this.period = o.period;
-    if (o.lineWidth !== undefined) this.lineWidth = o.lineWidth;
+    if (prepared.noise !== undefined) this.noise = prepared.noise;
+    if (prepared.speed !== undefined) this.speed = prepared.speed;
+    if (prepared.lineWidth !== undefined) this.lineWidth = prepared.lineWidth;
+    if (prepared.scanlineStrength !== undefined) this.scanlineStrength = prepared.scanlineStrength;
+    if (prepared.thermalStrength !== undefined) this.thermalStrength = prepared.thermalStrength;
+    if (prepared.thermalContrast !== undefined) this.thermalContrast = prepared.thermalContrast;
+    if (prepared.edgeDefinition !== undefined) this.edgeDefinition = prepared.edgeDefinition;
 
-    this.applyFadeOptionsFrom(o);
-    this.applyMaskOptionsFrom(o);
+    this.applyFadeOptionsFrom(prepared);
+    this.applyMaskOptionsFrom(prepared);
   }
 
   /**
-   * Begin playing the effect; installs a ticker to advance time and noise.
+   * Begin playing the effect and advance its animation state.
    * @param {{skipFading?:boolean}} [opts] - Options and play flags.
    * @returns {this} The filter instance.
    */
@@ -153,16 +291,23 @@ export class PredatorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   }
 
   /**
-   * Stop the effect: removes ticker, disables filter, and clears mask uniforms.
-   * @param {{skipFading?:boolean}} [opts]
+   * Stop the effect and clear its active state.
+   * @param {{durationMs?:number,skipFading?:boolean}} [opts]
    * @returns {Promise<any>|boolean} Awaitable stop result or true.
    */
   async stop({ durationMs = 0, skipFading = true } = {}) {
-    return this.stopWithUniformFade({ uniformKey: "strength", durationMs, skipFading });
+    return this.stopWithUniformFade({
+      uniformKey: "strength",
+      durationMs,
+      skipFading,
+      onDone: () => {
+        this._predTick = null;
+      },
+    });
   }
 
   /**
-   * Run the filter with FXMaster's apply lock and scene-rect area.
+   * Apply the filter to the active rendering area.
    * @param {PIXI.FilterSystem} filterSystem - Filter system.
    * @param {PIXI.RenderTexture} input - Input texture.
    * @param {PIXI.RenderTexture} output - Output texture.
@@ -179,24 +324,36 @@ export class PredatorFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
 }
 
 /**
- * Compute anti-alias width based on motion speed and line width.
- * @param {number} speedPx - Motion speed in px/s.
- * @param {number} lineWidthPx - Scanline width in px.
- * @returns {number} AA width in px.
+ * Remove obsolete Predator period data so the current Speed default is used.
+ * @param {object|null|undefined} options
+ * @returns {object}
  */
-function aaFrom(speedPx, lineWidthPx) {
-  const BASE = 0.6,
-    EXTRA = 0.004;
-  const w = Math.max(1.0, lineWidthPx);
-  return Math.max(0.75, BASE * w) + Math.abs(speedPx) * EXTRA;
+function discardFormerPeriodOption(options) {
+  if (!options || typeof options !== "object" || !Object.hasOwn(options, "period")) return options;
+  const prepared = { ...options };
+  delete prepared.period;
+  return prepared;
 }
 
 /**
- * Map UI period in [0, UI_PERIOD_MAX] to normalized [0,1] speed factor.
- * @param {number} pUI - UI period.
+ * Compute anti-alias width from motion speed and line width.
+ * @param {number} speedWorld - Motion speed in world pixels per second.
+ * @param {number} lineWidthWorld - Scanline width in world pixels.
+ * @returns {number} Anti-alias width in CSS pixels.
+ */
+function aaFrom(speedWorld, lineWidthWorld) {
+  const base = 0.6;
+  const extra = 0.004;
+  const width = Math.max(INTERNAL_LINE_WIDTH_MIN, lineWidthWorld);
+  return Math.max(0.75, base * Math.sqrt(width)) + Math.abs(speedWorld) * extra;
+}
+
+/**
+ * Map the effective speed value to a normalized motion factor.
+ * @param {number} value - Effective speed value.
  * @returns {number} Normalized factor.
  */
-function periodNorm(pUI) {
-  const t = Math.max(0, Math.min(1, (Number(pUI) || 0) / UI_PERIOD_MAX));
-  return Math.pow(t, PERIOD_RESPONSE_GAMMA);
+function speedNorm(value) {
+  const normalized = Math.max(0, Math.min(1, (Number(value) || 0) / INTERNAL_SPEED_MAX));
+  return Math.pow(normalized, SPEED_RESPONSE_GAMMA);
 }

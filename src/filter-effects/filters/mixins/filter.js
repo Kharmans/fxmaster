@@ -7,11 +7,19 @@ import {
 } from "../../../utils.js";
 import { MAX_EDGES } from "../../../constants.js";
 
-/**
- * FXMasterFilterEffectMixin
- * -------------------------
- * Provides option plumbing, viewport locking, mask helpers, and lifecycle. Automatically injects `uCssToWorld` uniform to lock patterns to the stage.
- */
+export const FILTER_PRESENTATION_PASSES = Object.freeze({
+  NORMAL: "normal",
+  BELOW_DARKNESS: "belowDarkness",
+  ABOVE_DARKNESS: "aboveDarkness",
+});
+
+export const FILTER_PRESENTATION_PASS_VALUES = Object.freeze({
+  [FILTER_PRESENTATION_PASSES.NORMAL]: 0,
+  [FILTER_PRESENTATION_PASSES.BELOW_DARKNESS]: 1,
+  [FILTER_PRESENTATION_PASSES.ABOVE_DARKNESS]: 2,
+});
+
+/** Adds filter option handling, viewport locking, masks, fades, and lifecycle helpers. */
 
 function normalizeOptionValue(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) || !("value" in value)) return value;
@@ -35,11 +43,9 @@ import regionFadeCommonFrag from "../shaders/region-fade-common.frag";
 import { logger } from "../../../logger.js";
 
 /**
- * Preprocess a GLSL fragment source string:
- * - Injects the MAX_EDGES constant from JavaScript so the GLSL and JS values are guaranteed to stay in sync.
- * - Replaces `#include <region-fade-common>` with the shared region fade infrastructure so each shader does not need to duplicate it.
- * @param {string} src - Raw GLSL source.
- * @returns {string} Preprocessed GLSL ready for compilation.
+ * Preprocess shared shader constants and region-fade includes.
+ * @param {string} src Raw GLSL source.
+ * @returns {string} Preprocessed GLSL source.
  */
 export function preprocessShader(src) {
   if (typeof src !== "string") return src;
@@ -86,6 +92,42 @@ export function FXMasterFilterEffectMixin(Base) {
     }
     static get neutral() {
       return {};
+    }
+
+    static get aboveDarknessPresentation() {
+      return null;
+    }
+
+    /**
+     * Prepare one presentation pass.
+     * @param {string} pass Presentation pass identifier.
+     * @returns {false|(() => void)|{cleanup?: () => void, skip?: boolean}} Cleanup state.
+     */
+    prepareFXMasterPresentationPass(pass) {
+      const descriptor = this.constructor?.aboveDarknessPresentation;
+      if (!descriptor || typeof descriptor !== "object") return false;
+
+      const uniformKey = String(descriptor.uniform ?? "").trim();
+      const uniforms = this.uniforms ?? null;
+      if (!uniformKey || !uniforms || !(uniformKey in uniforms)) return false;
+
+      const values =
+        descriptor.values && typeof descriptor.values === "object"
+          ? descriptor.values
+          : FILTER_PRESENTATION_PASS_VALUES;
+      const nextValue = values[pass];
+      if (!Number.isFinite(Number(nextValue))) return false;
+
+      const previousValue = uniforms[uniformKey];
+      uniforms[uniformKey] = Number(nextValue);
+
+      return () => {
+        try {
+          uniforms[uniformKey] = previousValue;
+        } catch (err) {
+          logger.debug("FXMaster:", err);
+        }
+      };
     }
 
     configure(options) {
@@ -146,9 +188,7 @@ export function FXMasterFilterEffectMixin(Base) {
 
     async step() {}
 
-    /**
-     * Lock viewport logic. Projects the SceneRect (World) into Screen Space and intersects with the Viewport. Uses strict clamping to prevent invalid Framebuffer sizes on extreme zoom.
-     */
+    /** Project and clamp the active rendering area to the viewport. */
     lockViewport(opts = {}) {
       const { setCamFrac = true, setDeviceToCss = true } = opts;
 
@@ -467,10 +507,9 @@ export function FXMasterFilterEffectMixin(Base) {
 
     /**
      * Animate a numeric uniform to a target value.
-     *
-     * @param {string} uniformKey
-     * @param {number} to
-     * @param {{ durationMs?: number, from?: number|undefined, easing?: Function|undefined, onDone?: Function|undefined }} [options]
+     * @param {string} uniformKey Uniform name.
+     * @param {number} to Target value.
+     * @param {{ durationMs?: number, from?: number|undefined, easing?: Function|undefined, onDone?: Function|undefined }} [options] Animation options.
      * @returns {void}
      */
     fadeUniformTo(uniformKey, to, { durationMs = 3000, from, easing, onDone } = {}) {

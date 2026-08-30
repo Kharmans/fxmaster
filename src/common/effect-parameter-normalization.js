@@ -384,7 +384,7 @@ function normalizeParameterMap(kind, source) {
   const parameters = source && typeof source === "object" ? source : {};
   const defaults = getRenderOrderParameters(kind);
   const leadingOrder = ["belowTokens", "belowTiles", "belowForeground", "levels"];
-  const trailingOrder = ["darknessActivationEnabled", "darknessActivationRange"];
+  const trailingOrder = ["aboveDarkness", "darknessActivationEnabled", "darknessActivationRange"];
   const hasBackgroundToggle = Object.hasOwn(parameters, "backgroundEnabled");
   const backgroundOrder = hasBackgroundToggle
     ? [
@@ -510,7 +510,7 @@ function normalizeParameterMap(kind, source) {
 
   for (const key of trailingOrder) {
     if (Object.hasOwn(parameters, key)) normalized[key] = normalizeRangeParameter(key, parameters[key]);
-    else normalized[key] = defaults[key];
+    else if (Object.hasOwn(defaults, key)) normalized[key] = defaults[key];
   }
 
   return normalized;

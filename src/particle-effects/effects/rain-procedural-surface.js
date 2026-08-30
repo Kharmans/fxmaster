@@ -57,20 +57,8 @@ float rainHash12Seeded(vec2 p, float seedOffset) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-vec3 rainHash32Seeded(vec2 p, float seedOffset) {
-  return vec3(
-    rainHash12Seeded(p, seedOffset),
-    rainHash12Seeded(p + vec2(17.17, 41.37), seedOffset),
-    rainHash12Seeded(p + vec2(-29.41, 9.73), seedOffset)
-  );
-}
-
 float rainHash12(vec2 p) {
   return rainHash12Seeded(p, 0.0);
-}
-
-vec3 rainHash32(vec2 p) {
-  return rainHash32Seeded(p, 0.0);
 }
 
 float rainDensityAmount() {
@@ -91,9 +79,10 @@ vec2 sideRainLayer(
   float baseLaneWidth,
   float spacing,
   float speedFactor,
-  float alphaFactor
+  float alphaFactor,
+  float densityAmount,
+  float lifetimeAmount
 ) {
-  float densityAmount = rainDensityAmount();
   float laneScale = mix(0.62, 1.88, densityAmount);
   float laneWidth = max(0.080, baseLaneWidth / laneScale);
   float laneCoord = oriented.x / laneWidth;
@@ -103,22 +92,26 @@ vec2 sideRainLayer(
   float cycleCoord = (oriented.y - uMotion * speedFactor) / max(0.5, spacing) + lanePhase;
   float cycleId = floor(cycleCoord);
   float phase = fract(cycleCoord);
-  vec3 randomValues = rainHash32(vec2(laneId, cycleId) + vec2(layer * 31.7, layer * -13.9));
-  float detailRandom = rainHash12(vec2(laneId - layer * 7.3, cycleId + layer * 19.1));
+  vec2 randomInput = vec2(laneId, cycleId) + vec2(layer * 31.7, layer * -13.9);
 
   float densityChance = mix(0.045, 0.80, densityAmount);
   densityChance *= mix(0.88, 1.12, clamp(layer / 1.55, 0.0, 1.0));
-  float present = step(randomValues.z, clamp(densityChance, 0.018, 0.84));
-  float laneCenter = mix(0.10, 0.90, randomValues.x);
+  float densityThreshold = clamp(densityChance, 0.018, 0.84);
+  float presenceRandom = rainHash12(randomInput + vec2(-29.41, 9.73));
+  if (presenceRandom > densityThreshold) return vec2(0.0);
 
-  float lifetimeAmount = rainLifetimeAmount();
+  float randomX = rainHash12(randomInput);
+  float randomY = rainHash12(randomInput + vec2(17.17, 41.37));
+  float detailRandom = rainHash12(vec2(laneId - layer * 7.3, cycleId + layer * 19.1));
+  float laneCenter = mix(0.10, 0.90, randomX);
+
   float depth = clamp(layer / 1.70, 0.0, 1.0);
   float depthScale = mix(0.70, 1.24, depth);
-  float commonLength = mix(0.15, 0.70, pow(randomValues.y, 1.18));
-  float longDrop = smoothstep(0.76, 0.98, detailRandom) * mix(0.18, 0.72, randomValues.x);
+  float commonLength = mix(0.15, 0.70, pow(randomY, 1.18));
+  float longDrop = smoothstep(0.76, 0.98, detailRandom) * mix(0.18, 0.72, randomX);
   float streakLength = (commonLength + longDrop) * max(0.08, uScale);
   streakLength *= mix(0.46, 2.10, lifetimeAmount) * depthScale;
-  float streakWidth = mix(0.0036, 0.0115, pow(randomValues.x, 1.25)) * sqrt(max(0.08, uScale));
+  float streakWidth = mix(0.0036, 0.0115, pow(randomX, 1.25)) * sqrt(max(0.08, uScale));
   streakWidth *= mix(0.72, 1.34, depth);
 
   float alongDistance = fract(1.0 - phase) * spacing;
@@ -129,6 +122,15 @@ vec2 sideRainLayer(
   float crossDistance = abs(crossOffset);
 
   float antiAlias = max(uPixelRain * 1.05, streakWidth * 0.24);
+  float tipOuter = streakWidth * 1.02 + antiAlias * 1.18;
+  float shoulderOuter = streakWidth * 1.28 + antiAlias * 1.65;
+  float maxCrossReach = max(
+    streakWidth * 2.65 + antiAlias,
+    max(tipOuter / 1.08, shoulderOuter / 0.88)
+  );
+  float maxAlongReach = max(streakLength + antiAlias * 3.0, tipOuter / 1.10);
+  if (crossDistance >= maxCrossReach || alongDistance >= maxAlongReach) return vec2(0.0);
+
   float headToTail = max(0.0, 1.0 - normalizedAlong);
   float tailStrength = pow(headToTail, mix(1.10, 1.48, detailRandom));
   float tipBulge = exp(-normalizedAlong * normalizedAlong * 118.0);
@@ -155,13 +157,13 @@ vec2 sideRainLayer(
   float tipDistance = length(vec2(crossOffset * 1.08, alongDistance * 1.10));
   float tip = 1.0 - smoothstep(
     streakWidth * 1.02,
-    streakWidth * 1.02 + antiAlias * 1.18,
+    tipOuter,
     tipDistance
   );
   float shoulderDistance = length(vec2(crossOffset * 0.88, alongDistance * 0.64));
   float shoulder = 1.0 - smoothstep(
     streakWidth * 1.28,
-    streakWidth * 1.28 + antiAlias * 1.65,
+    shoulderOuter,
     shoulderDistance
   );
   float filament = 0.88 + 0.12 * sin(normalizedAlong * mix(15.0, 24.0, detailRandom) + detailRandom * 17.0);
@@ -169,13 +171,13 @@ vec2 sideRainLayer(
   float intensityRandom = rainHash12(vec2(laneId + 5.7, cycleId - layer * 9.1));
   float dropIntensity = mix(0.38, 1.08, pow(intensityRandom, 0.72)) * mix(0.72, 1.24, lifetimeAmount);
 
-  float mask = present * body * (
+  float mask = body * (
     line * (0.060 + 0.82 * tailStrength) +
     core * (0.018 + 0.15 * pow(tailStrength, 2.45)) +
     softEdge * 0.018 +
     shoulder * 0.018
   ) * alphaFactor * dropIntensity * longitudinalVariation;
-  float highlight = present * max(tip * 0.90, core * pow(tailStrength, 3.2) * 0.50);
+  float highlight = max(tip * 0.90, core * pow(tailStrength, 3.2) * 0.50);
   highlight *= alphaFactor * dropIntensity;
   return vec2(mask, highlight);
 }
@@ -205,9 +207,10 @@ vec2 topDownRainLayer(
   float spacing,
   float speedFactor,
   float alphaFactor,
-  float seedOffset
+  float seedOffset,
+  float densityAmount,
+  float lifetimeAmount
 ) {
-  float densityAmount = rainDensityAmount();
   float rawScreenDensityBoost = clamp(uTopDownDensityBoost, 1.02, 4.05);
   float screenDensityBoost = mix(1.0, rawScreenDensityBoost, smoothstep(0.08, 0.72, densityAmount));
   float sectorCount = baseSectorCount * mix(0.92, 3.78, densityAmount) * screenDensityBoost;
@@ -228,14 +231,7 @@ vec2 topDownRainLayer(
   float cycleCoord = (radialTravel + uTopDownMotion * 0.58 * speedFactor) / effectiveSpacing + sectorPhase;
   float cycleId = floor(cycleCoord);
   float phase = fract(cycleCoord);
-  vec3 randomValues = rainHash32Seeded(
-    vec2(sectorId, cycleId) + vec2(layer * 37.1, layer * -21.3),
-    seedOffset
-  );
-  float detailRandom = rainHash12Seeded(
-    vec2(sectorId - layer * 5.9, cycleId + layer * 14.7),
-    seedOffset
-  );
+  vec2 randomInput = vec2(sectorId, cycleId) + vec2(layer * 37.1, layer * -21.3);
 
   float densityChance = mix(0.12, 0.997, densityAmount) * mix(0.92, 1.62, densityAmount * max(0.0, screenDensityBoost - 1.0));
   float legacyDeadzoneFade = topDownLegacyDeadzoneFade(radius, stopRadius);
@@ -246,16 +242,24 @@ vec2 topDownRainLayer(
     radius
   );
   densityChance *= mix(0.035, 1.0, max(centerPopulation, legacyDeadzoneFade * 0.92));
-  float present = step(randomValues.z, clamp(densityChance, 0.035, 0.998));
-  float centerFraction = mix(0.10, 0.90, randomValues.x);
+  float densityThreshold = clamp(densityChance, 0.035, 0.998);
+  float presenceRandom = rainHash12Seeded(randomInput + vec2(-29.41, 9.73), seedOffset);
+  if (presenceRandom > densityThreshold) return vec2(0.0);
+
+  float randomX = rainHash12Seeded(randomInput, seedOffset);
+  float randomY = rainHash12Seeded(randomInput + vec2(17.17, 41.37), seedOffset);
+  float detailRandom = rainHash12Seeded(
+    vec2(sectorId - layer * 5.9, cycleId + layer * 14.7),
+    seedOffset
+  );
+  float centerFraction = mix(0.10, 0.90, randomX);
 
   float perspective = mix(0.40, 1.36, smoothstep(stopRadius, stopRadius + 9.0, radius));
-  float lifetimeAmount = rainLifetimeAmount();
-  float commonLength = mix(0.13, 0.58, pow(randomValues.y, 1.12));
-  float longDrop = smoothstep(0.78, 0.98, detailRandom) * mix(0.12, 0.44, randomValues.x);
+  float commonLength = mix(0.13, 0.58, pow(randomY, 1.12));
+  float longDrop = smoothstep(0.78, 0.98, detailRandom) * mix(0.12, 0.44, randomX);
   float streakLength = (commonLength + longDrop) * max(0.08, uScale) * perspective;
   streakLength *= mix(0.48, 2.02, lifetimeAmount);
-  float streakWidth = mix(0.0038, 0.0125, pow(randomValues.x, 1.20));
+  float streakWidth = mix(0.0038, 0.0125, pow(randomX, 1.20));
   streakWidth *= sqrt(max(0.08, uScale)) * perspective;
 
   float alongDistance = phase * effectiveSpacing;
@@ -273,6 +277,11 @@ vec2 topDownRainLayer(
   float crossDistance = abs(crossOffset);
 
   float antiAlias = max(uPixelRain * 1.10, streakWidth * 0.25);
+  float tipOuter = streakWidth * 1.04 + antiAlias * 1.20;
+  float maxCrossReach = max(streakWidth * 2.48 + antiAlias, tipOuter / 1.08);
+  float maxAlongReach = max(streakLength + antiAlias * 3.0, tipOuter / 1.10);
+  if (crossDistance >= maxCrossReach || alongDistance >= maxAlongReach) return vec2(0.0);
+
   float headToTail = max(0.0, 1.0 - normalizedAlong);
   float tailStrength = pow(headToTail, mix(1.12, 1.48, detailRandom));
   float tipBulge = exp(-normalizedAlong * normalizedAlong * 108.0);
@@ -298,7 +307,7 @@ vec2 topDownRainLayer(
   float tipDistance = length(vec2(crossDistance * 1.08, alongDistance * 1.10));
   float tip = 1.0 - smoothstep(
     streakWidth * 1.04,
-    streakWidth * 1.04 + antiAlias * 1.20,
+    tipOuter,
     tipDistance
   );
   float centerFade = legacyDeadzoneFade;
@@ -309,28 +318,28 @@ vec2 topDownRainLayer(
   float dropIntensity = mix(0.40, 1.08, pow(intensityRandom, 0.72)) * mix(0.74, 1.24, lifetimeAmount);
   float filament = 0.88 + 0.12 * sin(normalizedAlong * mix(14.0, 22.0, detailRandom) + detailRandom * 19.0);
 
-  float mask = present * body * (
+  float mask = body * (
     line * (0.060 + 0.82 * tailStrength) +
     core * (0.018 + 0.15 * pow(tailStrength, 2.45)) +
     softEdge * 0.017
   ) * alphaFactor * centerFade * dropIntensity * filament;
-  float highlight = present * max(tip * 0.90, core * pow(tailStrength, 3.2) * 0.49);
+  float highlight = max(tip * 0.90, core * pow(tailStrength, 3.2) * 0.49);
   highlight *= alphaFactor * centerFade * dropIntensity;
   return vec2(mask, highlight);
 }
 
-vec2 topDownRainField(vec2 focusGrid, float seedOffset) {
+vec2 topDownRainField(vec2 focusGrid, float seedOffset, float densityAmount, float lifetimeAmount) {
   vec2 relative = vRainCoord - focusGrid;
   float radius = max(length(relative), 0.001);
   float angle = atan(relative.y, relative.x);
   vec2 rain = vec2(0.0);
-  rain += topDownRainLayer(radius, angle, 0.40, 146.0, 2.82, 0.74, 0.48, seedOffset + 47.9);
-  rain += topDownRainLayer(radius, angle, 0.66, 198.0, 3.40, 0.86, 1.00, seedOffset);
-  rain += topDownRainLayer(radius, angle, 0.98, 258.0, 4.34, 1.00, 0.84, seedOffset + 13.7);
-  rain += topDownRainLayer(radius, angle, 1.38, 336.0, 5.52, 1.15, 0.70, seedOffset + 29.3);
-  rain += topDownRainLayer(radius, angle, 1.82, 428.0, 6.84, 1.28, 0.52, seedOffset + 64.1);
-  rain += topDownRainLayer(radius, angle, 2.30, 520.0, 8.28, 1.42, 0.36, seedOffset + 91.6);
-  rain += topDownRainLayer(radius, angle, 2.78, 596.0, 9.80, 1.56, 0.24, seedOffset + 118.4);
+  rain += topDownRainLayer(radius, angle, 0.40, 146.0, 2.82, 0.74, 0.48, seedOffset + 47.9, densityAmount, lifetimeAmount);
+  rain += topDownRainLayer(radius, angle, 0.66, 198.0, 3.40, 0.86, 1.00, seedOffset, densityAmount, lifetimeAmount);
+  rain += topDownRainLayer(radius, angle, 0.98, 258.0, 4.34, 1.00, 0.84, seedOffset + 13.7, densityAmount, lifetimeAmount);
+  rain += topDownRainLayer(radius, angle, 1.38, 336.0, 5.52, 1.15, 0.70, seedOffset + 29.3, densityAmount, lifetimeAmount);
+  rain += topDownRainLayer(radius, angle, 1.82, 428.0, 6.84, 1.28, 0.52, seedOffset + 64.1, densityAmount, lifetimeAmount);
+  rain += topDownRainLayer(radius, angle, 2.30, 520.0, 8.28, 1.42, 0.36, seedOffset + 91.6, densityAmount, lifetimeAmount);
+  rain += topDownRainLayer(radius, angle, 2.78, 596.0, 9.80, 1.56, 0.24, seedOffset + 118.4, densityAmount, lifetimeAmount);
   return rain * 1.44;
 }
 
@@ -353,13 +362,15 @@ void main() {
   }
 
   float effectiveAlpha = uAlpha * uWorldAlpha;
+  float densityAmount = rainDensityAmount();
+  float lifetimeAmount = rainLifetimeAmount();
   vec2 rain = vec2(0.0);
 
 #if defined(FXM_RAIN_TOP_DOWN)
-  rain = topDownRainField(uTopDownCurrentFocusGrid, uTopDownCurrentSeed);
+  rain = topDownRainField(uTopDownCurrentFocusGrid, uTopDownCurrentSeed, densityAmount, lifetimeAmount);
   float focusBlend = smoothstep(0.0, 1.0, clamp(uTopDownBlend, 0.0, 1.0));
   if (focusBlend < 0.999) {
-    vec2 previousRain = topDownRainField(uTopDownPreviousFocusGrid, uTopDownPreviousSeed);
+    vec2 previousRain = topDownRainField(uTopDownPreviousFocusGrid, uTopDownPreviousSeed, densityAmount, lifetimeAmount);
     float previousGap = 1.0 - topDownDeadzoneTransitionMask(uTopDownPreviousFocusGrid);
     float currentGap = 1.0 - topDownDeadzoneTransitionMask(uTopDownCurrentFocusGrid);
     float transitionArea = clamp(max(previousGap, currentGap) * 1.20, 0.0, 1.0);
@@ -371,16 +382,16 @@ void main() {
   vec2 direction = uDirection / max(length(uDirection), 0.0001);
   vec2 crossDirection = vec2(-direction.y, direction.x);
   vec2 oriented = vec2(dot(p, crossDirection), dot(p, direction));
-  rain += sideRainLayer(oriented, 0.44, 0.18, 2.45, 0.79, 0.28);
-  rain += sideRainLayer(oriented, 0.72, 0.29, 3.18, 0.89, 0.58);
-  rain += sideRainLayer(oriented, 1.10, 0.44, 4.28, 1.02, 0.42);
-  rain += sideRainLayer(oriented, 1.62, 0.65, 5.52, 1.16, 0.28);
+  rain += sideRainLayer(oriented, 0.44, 0.18, 2.45, 0.79, 0.28, densityAmount, lifetimeAmount);
+  rain += sideRainLayer(oriented, 0.72, 0.29, 3.18, 0.89, 0.58, densityAmount, lifetimeAmount);
+  rain += sideRainLayer(oriented, 1.10, 0.44, 4.28, 1.02, 0.42, densityAmount, lifetimeAmount);
+  rain += sideRainLayer(oriented, 1.62, 0.65, 5.52, 1.16, 0.28, densityAmount, lifetimeAmount);
 #else
   if (uTopDown > 0.5) {
-    rain = topDownRainField(uTopDownCurrentFocusGrid, uTopDownCurrentSeed);
+    rain = topDownRainField(uTopDownCurrentFocusGrid, uTopDownCurrentSeed, densityAmount, lifetimeAmount);
     float focusBlend = smoothstep(0.0, 1.0, clamp(uTopDownBlend, 0.0, 1.0));
     if (focusBlend < 0.999) {
-      vec2 previousRain = topDownRainField(uTopDownPreviousFocusGrid, uTopDownPreviousSeed);
+      vec2 previousRain = topDownRainField(uTopDownPreviousFocusGrid, uTopDownPreviousSeed, densityAmount, lifetimeAmount);
       float previousGap = 1.0 - topDownDeadzoneTransitionMask(uTopDownPreviousFocusGrid);
       float currentGap = 1.0 - topDownDeadzoneTransitionMask(uTopDownCurrentFocusGrid);
       float transitionArea = clamp(max(previousGap, currentGap) * 1.20, 0.0, 1.0);
@@ -392,10 +403,10 @@ void main() {
     vec2 direction = uDirection / max(length(uDirection), 0.0001);
     vec2 crossDirection = vec2(-direction.y, direction.x);
     vec2 oriented = vec2(dot(p, crossDirection), dot(p, direction));
-    rain += sideRainLayer(oriented, 0.44, 0.18, 2.45, 0.79, 0.28);
-    rain += sideRainLayer(oriented, 0.72, 0.29, 3.18, 0.89, 0.58);
-    rain += sideRainLayer(oriented, 1.10, 0.44, 4.28, 1.02, 0.42);
-    rain += sideRainLayer(oriented, 1.62, 0.65, 5.52, 1.16, 0.28);
+    rain += sideRainLayer(oriented, 0.44, 0.18, 2.45, 0.79, 0.28, densityAmount, lifetimeAmount);
+    rain += sideRainLayer(oriented, 0.72, 0.29, 3.18, 0.89, 0.58, densityAmount, lifetimeAmount);
+    rain += sideRainLayer(oriented, 1.10, 0.44, 4.28, 1.02, 0.42, densityAmount, lifetimeAmount);
+    rain += sideRainLayer(oriented, 1.62, 0.65, 5.52, 1.16, 0.28, densityAmount, lifetimeAmount);
   }
 #endif
 

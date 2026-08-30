@@ -69,6 +69,7 @@ const REGION_FILTER_EFFECT_TYPE = `${packageId}.filterEffectsRegion`;
  * @property {boolean} [tokenTrails=false] Enable token trail interaction when supported.
  * @property {boolean} [belowTiles=false] Apply the preset beneath tiles.
  * @property {boolean} [belowForeground=false] Apply the preset beneath foreground coverage.
+ * @property {boolean} [aboveDarkness=true] Present compatible luminous filter contributions above scene darkness.
  * @property {boolean} [darknessActivationEnabled=false] Enable or disable darkness gating explicitly.
  * @property {number} [darknessActivationMin] Minimum scene darkness level for the preset effect range. Supplying min/max without an explicit toggle enables darkness activation.
  * @property {number} [darknessActivationMax] Maximum scene darkness level for the preset effect range. Supplying min/max without an explicit toggle enables darkness activation.
@@ -1584,7 +1585,7 @@ function resolvePresetLevelSelection(value, scene) {
  * Apply top-level overrides to a particle or filter options object.
  *
  * @param {object} options
- * @param {{ topDown?: boolean, belowTokens?: boolean, splash?: boolean, background?: boolean, tokenTrails?: boolean, belowTiles?: boolean, belowForeground?: boolean, darknessActivationEnabled?: boolean, darknessActivationMin?: number, darknessActivationMax?: number, directionDeg?: number|null, soundFx?: boolean, windPainting?: boolean, speedScale?: number, densityScale?: number, levels?: PresetLevelsValue, }} overrides
+ * @param {{ topDown?: boolean, belowTokens?: boolean, splash?: boolean, background?: boolean, tokenTrails?: boolean, belowTiles?: boolean, belowForeground?: boolean, aboveDarkness?: boolean, darknessActivationEnabled?: boolean, darknessActivationMin?: number, darknessActivationMax?: number, directionDeg?: number|null, soundFx?: boolean, windPainting?: boolean, speedScale?: number, densityScale?: number, levels?: PresetLevelsValue, }} overrides
  * @param {{ plusActive: boolean, scene?: Scene|null }} ctx
  * @param {{kind?: "particles"|"filters", type?: string}} meta
  * @returns {object}
@@ -1616,6 +1617,11 @@ function applyOptionOverrides(options = {}, overrides = {}, { plusActive, scene 
 
   if (typeof overrides.belowTiles === "boolean") out.belowTiles = overrides.belowTiles;
   if (typeof overrides.belowForeground === "boolean") out.belowForeground = overrides.belowForeground;
+
+  const supportsAboveDarkness = !!getRegisteredParamDescriptor(meta, "aboveDarkness");
+  if (supportsAboveDarkness && typeof overrides.aboveDarkness === "boolean") {
+    out.aboveDarkness = overrides.aboveDarkness;
+  }
 
   const resolvedLevels = resolvePresetLevelSelection(overrides.levels, scene);
   if (resolvedLevels.length) out.levels = resolvedLevels;
@@ -1824,6 +1830,7 @@ export async function playPreset(
     tokenTrails = false,
     belowTiles = false,
     belowForeground = false,
+    aboveDarkness = true,
     darknessActivationEnabled = undefined,
     darknessActivationMin = undefined,
     darknessActivationMax = undefined,
@@ -1882,6 +1889,7 @@ export async function playPreset(
     tokenTrails,
     belowTiles,
     belowForeground,
+    aboveDarkness,
     darknessActivationEnabled,
     darknessActivationMin,
     darknessActivationMax,

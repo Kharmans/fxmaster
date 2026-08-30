@@ -17,62 +17,58 @@ precision mediump int;
 uniform sampler2D uSampler;
 uniform sampler2D maskSampler;
 
-/** ---- Pixi pipeline frames (match Color) ---- */
-uniform vec2  viewSize;     /** CSS viewport size */
-uniform vec4  inputSize;    /** xy: input size in CSS px; zw: 1/size */
-uniform vec4  outputFrame;  /** xy: offset in CSS px;    zw: size */
-
-/** Kept for ABI/back-compat; not used for mask sample */
-uniform vec4  srcFrame;     /** CSS px: (x,y,w,h) */
-uniform vec2  camFrac;
+uniform vec2 viewSize;
+uniform vec4 inputSize;
+uniform vec4 outputFrame;
+uniform vec4 srcFrame;
+uniform vec2 camFrac;
 
 uniform float hasMask;
 uniform float maskReady;
-uniform float invertMask; /** 0/1 */
+uniform float invertMask;
 uniform float maskSoft;
 uniform float maskWorldReady;
-uniform mat3  uMaskUvFromWorld;
-uniform vec2  maskTexelUV;
+uniform mat3 uMaskUvFromWorld;
+uniform vec2 maskTexelUV;
 
-uniform float time;        /** seconds */
-uniform float speedPx;     /** px/s (negative => down) */
-uniform float lineWidthPx; /** stripe thickness in px */
-uniform float noiseAmt;    /** 0..1 */
-uniform float contrast;    /** ~1.5 */
-uniform float aaPx;        /** AA width in px (fallback / minimum) */
+uniform float time;
+uniform float seed;
+uniform float speedWorld;
+uniform float lineWidthWorld;
+uniform float noiseAmt;
+uniform float scanlineStrength;
+uniform float thermalStrength;
+uniform float thermalContrast;
+uniform float edgeDefinition;
+uniform float stripeContrast;
+uniform float aaCssPx;
 
-/** -------- Region fade (same schema as other filters) -------- */
-uniform int   uRegionShape;
-uniform mat3  uCssToWorld;
+uniform int uRegionShape;
+uniform mat3 uCssToWorld;
 
-uniform vec2  uCenter;
-uniform vec2  uHalfSize;
+uniform vec2 uCenter;
+uniform vec2 uHalfSize;
 uniform float uRotation;
 
 uniform sampler2D uSdf;
-uniform mat3  uUvFromWorld;
-uniform vec2  uSdfScaleOff;
+uniform mat3 uUvFromWorld;
+uniform vec2 uSdfScaleOff;
 uniform float uSdfInsideMax;
-uniform vec2  uSdfTexel;
+uniform vec2 uSdfTexel;
 
-uniform float uFadeWorld;   /** world px */
-uniform float uFadePx;      /** CSS px */
-
-uniform float uUsePct;      /** 1 => use uFadePct */
-uniform float uFadePct;     /** 0..1 */
-
-/** SDF-backed polygon % fades (used for multi-shape regions) */
-uniform float uUseSdf;        /** 1 => use SDF for polygon % fades */
+uniform float uFadeWorld;
+uniform float uFadePx;
+uniform float uUsePct;
+uniform float uFadePct;
+uniform float uUseSdf;
 
 #define MAX_EDGES 64
 uniform float uEdgeCount;
-uniform vec4  uEdges[MAX_EDGES]; /** (Ax,Ay,Bx,By) world units */
-uniform float uSmoothKWorld;     /** world-px smoothing radius */
+uniform vec4 uEdges[MAX_EDGES];
+uniform float uSmoothKWorld;
 
 varying vec2 vTextureCoord;
 
-
-/** Shared region fade infrastructure */
 #include <region-fade-common>
 
 vec2 fxmMaskUvFromCss(vec2 cssPx) {
@@ -92,86 +88,139 @@ float fxmMaskSample(vec2 cssPx) {
   return fxmMaskSampleUv(fxmMaskUvFromCss(cssPx));
 }
 
-vec2 fxmMaskTexel() {
-  return (maskWorldReady > 0.5) ? maskTexelUV : (1.0 / max(viewSize, vec2(1.0)));
+float fxmLuma(vec3 color) {
+  return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+
+float fxmHash(vec2 point) {
+  return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+vec3 fxmThermalPalette(float heat) {
+  float t = clamp(heat, 0.0, 1.0);
+  if (t < 0.18) return mix(vec3(0.015, 0.005, 0.08), vec3(0.0, 0.08, 0.55), t / 0.18);
+  if (t < 0.38) return mix(vec3(0.0, 0.08, 0.55), vec3(0.42, 0.02, 0.58), (t - 0.18) / 0.20);
+  if (t < 0.58) return mix(vec3(0.42, 0.02, 0.58), vec3(0.95, 0.04, 0.03), (t - 0.38) / 0.20);
+  if (t < 0.78) return mix(vec3(0.95, 0.04, 0.03), vec3(1.0, 0.48, 0.02), (t - 0.58) / 0.20);
+  if (t < 0.92) return mix(vec3(1.0, 0.48, 0.02), vec3(1.0, 0.95, 0.16), (t - 0.78) / 0.14);
+  return mix(vec3(1.0, 0.95, 0.16), vec3(1.0), (t - 0.92) / 0.08);
+}
+
+float fxmThermalEdge(vec2 uv) {
+  if (edgeDefinition <= 0.001) return 0.0;
+
+  vec2 texel = max(inputSize.zw, vec2(0.000001));
+  float left = fxmLuma(texture2D(uSampler, clamp(uv - vec2(texel.x, 0.0), vec2(0.0), vec2(1.0))).rgb);
+  float right = fxmLuma(texture2D(uSampler, clamp(uv + vec2(texel.x, 0.0), vec2(0.0), vec2(1.0))).rgb);
+  float up = fxmLuma(texture2D(uSampler, clamp(uv - vec2(0.0, texel.y), vec2(0.0), vec2(1.0))).rgb);
+  float down = fxmLuma(texture2D(uSampler, clamp(uv + vec2(0.0, texel.y), vec2(0.0), vec2(1.0))).rgb);
+  return clamp(length(vec2(right - left, down - up)) * 2.75, 0.0, 1.0);
 }
 
 void main() {
   vec4 src = texture2D(uSampler, vTextureCoord);
 
-  vec2 screenPx = outputFrame.xy + vTextureCoord * outputFrame.zw;
-  vec2 snapPx   = screenPx - camFrac;
+  vec2 screenPx = outputFrame.xy + vTextureCoord * inputSize.xy;
+  vec2 snapPx = screenPx - camFrac;
+  vec2 worldPx = applyCssToWorld(snapPx);
 
   float inMask = src.a;
   if (hasMask > 0.5) {
-    bool maskUsable = (maskReady > 0.5) &&
-                      (viewSize.x >= 1.0) &&
-                      (viewSize.y >= 1.0);
+    bool maskUsable = (maskReady > 0.5) && (viewSize.x >= 1.0) && (viewSize.y >= 1.0);
     if (maskUsable) {
       vec2 samplePx = (uRegionShape < 0) ? screenPx : snapPx;
-
       vec2 maskPx = floor(samplePx) + 0.5;
-      float a     = fxmMaskSample(maskPx);
-
-      float m     = (maskSoft > 0.5) ? a : ((uRegionShape < 0) ? step(0.5, a) : smoothstep(0.48, 0.52, a));
-      if (invertMask > 0.5) m = 1.0 - m;
-      inMask *= m;
+      float alpha = fxmMaskSample(maskPx);
+      float maskValue = (maskSoft > 0.5)
+        ? alpha
+        : ((uRegionShape < 0) ? step(0.5, alpha) : smoothstep(0.48, 0.52, alpha));
+      if (invertMask > 0.5) maskValue = 1.0 - maskValue;
+      inMask *= maskValue;
     }
   }
 
   float fadeEdge = 1.0;
-  vec2  pW       = applyCssToWorld((uRegionShape < 0) ? screenPx : snapPx);
+  vec2 fadeWorld = applyCssToWorld((uRegionShape < 0) ? screenPx : snapPx);
 
   if (uUsePct > 0.5) {
     float pct = clamp(uFadePct, 0.0, 1.0);
     if (pct > 0.0) {
-      if      (uRegionShape == 1) fadeEdge = fadePctRect(pW, pct);
-      else if (uRegionShape == 2) fadeEdge = fadePctEllipse(pW, pct);
+      if (uRegionShape == 1) fadeEdge = fadePctRect(fadeWorld, pct);
+      else if (uRegionShape == 2) fadeEdge = fadePctEllipse(fadeWorld, pct);
       else if (uRegionShape == 0) {
-        fadeEdge = (uUseSdf > 0.5) ? fadePctPoly_sdf(pW, pct) : fadePctPoly_edges(pW, pct);
+        fadeEdge = (uUseSdf > 0.5) ? fadePctPoly_sdf(fadeWorld, pct) : fadePctPoly_edges(fadeWorld, pct);
       }
     }
   } else {
-    float fw = (uFadeWorld > 0.0) ? uFadeWorld
-             : (uFadePx > 0.0   ? uFadePx * worldPerCss() : 0.0);
-    if (fw > 0.0) {
-      if      (uRegionShape == 1 || uRegionShape == 2) {
-        float sd = (uRegionShape == 1)
-          ? sdRect(pW, uCenter, uHalfSize, uRotation)
-          : sdEllipse(pW, uCenter, uHalfSize, uRotation);
-        fadeEdge = 1.0 - smoothstep(0.0, fw, sd + fw);
+    float fadeWidth = (uFadeWorld > 0.0)
+      ? uFadeWorld
+      : (uFadePx > 0.0 ? uFadePx * worldPerCss() : 0.0);
+    if (fadeWidth > 0.0) {
+      if (uRegionShape == 1 || uRegionShape == 2) {
+        float distance = (uRegionShape == 1)
+          ? sdRect(fadeWorld, uCenter, uHalfSize, uRotation)
+          : sdEllipse(fadeWorld, uCenter, uHalfSize, uRotation);
+        fadeEdge = 1.0 - smoothstep(0.0, fadeWidth, distance + fadeWidth);
       } else if (uRegionShape == 0) {
-        float d = sdPolySmooth(pW);
-        fadeEdge = 1.0 - smoothstep(0.0, fw, d + fw);
+        float distance = sdPolySmooth(fadeWorld);
+        fadeEdge = 1.0 - smoothstep(0.0, fadeWidth, distance + fadeWidth);
       }
     }
   }
 
-  float halfW = max(0.5, lineWidthPx * 0.5);
-  float pitch = max(2.0, halfW * 4.0);
+  float mixAmount = clamp(inMask * fadeEdge, 0.0, 1.0);
+  if (mixAmount <= 0.0001) {
+    gl_FragColor = src;
+    return;
+  }
 
-  float phasePx = screenPx.y + time * speedPx;
-  float t  = fract(phasePx / pitch);
-  float d  = abs(t - 0.5) * pitch;
+  float halfWidth = max(0.25, lineWidthWorld * 0.5);
+  float pitch = max(1.0, halfWidth * 4.0);
+  float phaseWorld = worldPx.y + time * speedWorld;
+  float phase = fract(phaseWorld / pitch);
+  float stripeDistance = abs(phase - 0.5) * pitch;
 
-  float aaDyn = aaPx;
+  float aaWorld = max(0.001, aaCssPx * worldPerCss());
   #ifdef GL_OES_standard_derivatives
-    float fwPhase = fwidth(phasePx);
-    float fwDist  = fwidth(d);
-    aaDyn = max(aaPx, 1.25 * fwPhase + 0.5 * fwDist);
+    aaWorld = max(aaWorld, 1.25 * fwidth(phaseWorld) + 0.5 * fwidth(stripeDistance));
   #endif
 
-  float stripeMask = 1.0 - smoothstep(halfW, halfW + aaDyn, d);
-  stripeMask = pow(stripeMask, max(contrast, 0.5));
+  float stripeMask = 1.0 - smoothstep(halfWidth, halfWidth + aaWorld, stripeDistance);
+  stripeMask = pow(stripeMask, max(stripeContrast, 0.5));
 
-  vec2  hp = screenPx + vec2(37.0, 73.0);
-  float g  = fract(sin(dot(hp, vec2(127.1,311.7))) * 43758.5453123) - 0.5;
-  float grain = g * 0.25 * clamp(noiseAmt, 0.0, 1.0);
+  vec3 predator = src.rgb;
+  float thermalAmount = clamp(thermalStrength, 0.0, 1.0);
+  if (thermalAmount > 0.0001) {
+    float luminance = fxmLuma(src.rgb);
+    float contrastScale = mix(0.75, 2.5, clamp(thermalContrast, 0.0, 1.0));
+    float heat = clamp((luminance - 0.5) * contrastScale + 0.5, 0.0, 1.0);
 
-  float modulator = clamp(0.85 + 0.30 * stripeMask + grain, 0.0, 1.25);
-  vec3 pred = src.rgb * modulator;
+    float edgeAmount = 0.0;
+    if (edgeDefinition > 0.0001) {
+      edgeAmount = clamp(fxmThermalEdge(vTextureCoord) * edgeDefinition, 0.0, 1.0);
+    }
 
-  float mixAmt = clamp(inMask * fadeEdge, 0.0, 1.0);
-  vec3 outRGB = mix(src.rgb, pred, mixAmt);
-  gl_FragColor = vec4(outRGB, src.a);
+    vec3 thermal = fxmThermalPalette(heat);
+    if (edgeAmount > 0.0001) {
+      float edgeHeat = clamp(heat + 0.22, 0.0, 1.0);
+      thermal = mix(thermal, fxmThermalPalette(edgeHeat), edgeAmount * 0.75);
+    }
+    thermal *= mix(0.82, 1.12, luminance);
+    predator = mix(src.rgb, thermal, thermalAmount);
+  }
+
+  float scanModulation = 1.0 + clamp(scanlineStrength, 0.0, 1.0) * (stripeMask * 0.30 - 0.15);
+  float grain = 0.0;
+  if (noiseAmt > 0.0001) {
+    float grainSize = max(1.0, lineWidthWorld * 0.75);
+    vec2 grainCell = floor(worldPx / grainSize);
+    float grainFrame = floor(seed * 0.5);
+    grain = fxmHash(grainCell + vec2(grainFrame * 17.0, grainFrame * 31.0)) - 0.5;
+    grain *= 0.25 * clamp(noiseAmt, 0.0, 1.0);
+  }
+
+  predator = clamp(predator * scanModulation + grain, 0.0, 1.25);
+
+  vec3 outputColor = mix(src.rgb, predator, mixAmount);
+  gl_FragColor = vec4(outputColor, src.a);
 }

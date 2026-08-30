@@ -32,6 +32,7 @@ uniform vec2  maskTexelUV;
 /** Effect */
 uniform float brightness;
 uniform vec3  color;
+uniform float uPresentationPass;
 
 /** -------- Region fade (same schema as Color/Fog) -------- */
 uniform int   uRegionShape;
@@ -87,6 +88,36 @@ float fxmMaskSample(vec2 cssPx) {
 
 vec2 fxmMaskTexel() {
   return (maskWorldReady > 0.5) ? maskTexelUV : (1.0 / max(viewSize, vec2(1.0)));
+}
+
+float fxmPresentationChannelAlpha(float baseValue, float resultValue) {
+  float darkRequirement = baseValue > 1e-5 ? max((baseValue - resultValue) / baseValue, 0.0) : 0.0;
+  float lightRequirement = baseValue < 0.99999
+    ? max((resultValue - baseValue) / max(1.0 - baseValue, 1e-5), 0.0)
+    : step(baseValue + 1e-5, resultValue);
+  return max(darkRequirement, lightRequirement);
+}
+
+vec4 fxmTransparentPresentation(vec3 baseColor, vec3 resultColor) {
+  vec3 base = clamp(baseColor, 0.0, 1.0);
+  vec3 result = clamp(resultColor, 0.0, 1.0);
+  float alpha = max(
+    fxmPresentationChannelAlpha(base.r, result.r),
+    max(
+      fxmPresentationChannelAlpha(base.g, result.g),
+      fxmPresentationChannelAlpha(base.b, result.b)
+    )
+  );
+  alpha = clamp(alpha, 0.0, 1.0);
+  if (alpha <= 1e-5) return vec4(0.0);
+  vec3 premultiplied = result - base * (1.0 - alpha);
+  return vec4(clamp(premultiplied, vec3(0.0), vec3(alpha)), alpha);
+}
+
+vec4 fxmPresentationResult(vec4 source, vec3 belowColor, vec3 resultColor) {
+  if (uPresentationPass > 1.5) return fxmTransparentPresentation(belowColor, resultColor);
+  if (uPresentationPass > 0.5) return vec4(clamp(belowColor, 0.0, 1.0), source.a);
+  return vec4(clamp(resultColor, 0.0, 1.0), source.a);
 }
 
 void main(void) {
@@ -147,6 +178,7 @@ void main(void) {
   float mixAmt = clamp(inMask * fadeEdge, 0.0, 1.0);
   float flash  = max(brightness - 1.0, 0.0);
   vec3 lit     = clamp(src.rgb * max(brightness, 0.0) + color * flash * 0.30, 0.0, 1.0);
-  vec3 outRgb  = mix(src.rgb, lit, mixAmt);
-  gl_FragColor = vec4(outRgb, src.a);
+  vec3 outRgb = mix(src.rgb, lit, mixAmt);
+  vec3 belowRgb = min(src.rgb, outRgb);
+  gl_FragColor = fxmPresentationResult(src, belowRgb, outRgb);
 }

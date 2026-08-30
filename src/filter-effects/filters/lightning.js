@@ -4,17 +4,11 @@ import { packageId, MAX_EDGES } from "../../constants.js";
 import { easeFunctions } from "../../ease.js";
 import { logger } from "../../logger.js";
 
-/**
- * LightningFilter
- * ---------------
- * Scene/region lightning flashes.
- * - Procedural flashes driven by a ticker using randomized intervals.
- */
+/** Produces randomized, audio-aware, and synchronized lightning flashes. */
 export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   /**
-   * Construct a LightningFilter, wiring mask and fade uniforms, and defaults.
-   * @param {object} [options={}] - Initial filter options.
-   * @param {string} [id] - Stable id for filter instances.
+   * @param {object} [options={}] Initial filter options.
+   * @param {string} [id] Stable filter identifier.
    */
   constructor(options = {}, id) {
     super(options, id, PIXI.Filter.defaultVertex, preprocessShader(fragment));
@@ -29,6 +23,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
 
     u.brightness = typeof u.brightness === "number" ? u.brightness : 1.0;
     if (!(u.color instanceof Float32Array) || u.color.length < 3) u.color = new Float32Array([1, 1, 1]);
+    u.uPresentationPass = typeof u.uPresentationPass === "number" ? u.uPresentationPass : 0;
 
     this._tickerFn = null;
     this._accumMS = 0;
@@ -42,16 +37,20 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     this._nextMS = this._sampleIntervalMS();
   }
 
-  /** i18n label key used by UI. */
   static label = "FXMASTER.Filters.Effects.Lightning";
 
-  /** FontAwesome icon class used by UI. */
   static icon = "fas fa-bolt-lightning";
 
-  /**
-   * Parameter schema exposed to configuration UIs.
-   * @returns {Record<string, object>} Parameter descriptors.
-   */
+  static get aboveDarknessPresentation() {
+    return {
+      option: "aboveDarkness",
+      uniform: "uPresentationPass",
+      values: { normal: 0, belowDarkness: 1, aboveDarkness: 2 },
+      blendMode: PIXI.BLEND_MODES.NORMAL,
+    };
+  }
+
+  /** @returns {Record<string, object>} Configuration parameter descriptors. */
   static get parameters() {
     const base = {
       belowTokens: { label: "FXMASTER.Params.BelowTokens", type: "checkbox", value: false },
@@ -107,32 +106,30 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
       },
     };
 
-    return { ...base, ...audio };
+    return {
+      ...base,
+      ...audio,
+      aboveDarkness: {
+        label: "FXMASTER.Params.AboveDarkness",
+        type: "checkbox",
+        value: false,
+        tooltip: "FXMASTER.ParamTooltips.AboveDarkness",
+      },
+    };
   }
 
-  /**
-   * Neutral (no-op) option values.
-   * @returns {{brightness:number}}
-   */
+  /** @returns {{brightness:number}} Neutral option values. */
   static get neutral() {
     return { brightness: 1.0 };
   }
 
-  /**
-   * Return whether the filter can safely access shader-backed uniforms.
-   *
-   * @returns {boolean}
-   */
+  /** @returns {boolean} Whether shader uniforms remain accessible. */
   _canAccessUniforms() {
     if (this.destroyed) return false;
     return true;
   }
 
-  /**
-   * Safely read the live uniforms object.
-   *
-   * @returns {object|null}
-   */
+  /** @returns {object|null} Active shader uniforms. */
   _getUniformsSafe() {
     if (!this._canAccessUniforms()) return null;
     try {
@@ -144,20 +141,14 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   }
 
   /**
-   * Determine whether a scheduled flash sequence is still valid.
-   *
-   * @param {number} generation - The flash-generation token captured by the caller.
-   * @returns {boolean}
+   * @param {number} generation Flash-generation token.
+   * @returns {boolean} Whether the scheduled sequence remains active.
    */
   _isFlashGenerationActive(generation) {
     return generation === this._flashGeneration && this.enabled && !this.destroyed;
   }
 
-  /**
-   * Terminate all queued timeouts and active CanvasAnimation instances used by lightning flashes.
-   *
-   * @returns {void}
-   */
+  /** Cancel queued delays and active brightness animations. */
   _cancelFlashWork() {
     this._flashGeneration++;
     this._animating = false;
@@ -178,11 +169,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     this._activeAnimations.clear();
   }
 
-  /**
-   * Remove the currently bound driver ticker.
-   *
-   * @returns {void}
-   */
+  /** Remove the active flash driver ticker. */
   _removeTicker() {
     const t = canvas?.app?.ticker ?? PIXI.Ticker.shared;
     if (!this._tickerFn) return;
@@ -194,29 +181,17 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     this._tickerFn = null;
   }
 
-  /**
-   * Return the active driver mode implied by the current options.
-   *
-   * @returns {"time"|"audio"}
-   */
+  /** @returns {"time"|"audio"} Active flash driver mode. */
   _getConfiguredDriverMode() {
     return this.audioAware ? "audio" : "time";
   }
 
-  /**
-   * Return whether synchronized manual-flash mode is currently holding the autonomous ticker.
-   *
-   * @returns {boolean}
-   */
+  /** @returns {boolean} Whether synchronized mode suppresses autonomous flashes. */
   _isManualFlashOnly() {
     return !!this._fxpManualFlash;
   }
 
-  /**
-   * Refresh the active driver ticker after an option change.
-   *
-   * @returns {void}
-   */
+  /** Refresh the active driver after an option change. */
   _refreshDriverTicker() {
     const manualOnly = this._isManualFlashOnly();
 
@@ -242,11 +217,10 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   }
 
   /**
-   * Wait for a short flash-pattern gap while allowing pending work to be cancelled.
-   *
-   * @param {number} durationMs - Gap duration in milliseconds.
-   * @param {number} generation - Flash-generation token captured by the caller.
-   * @returns {Promise<boolean>} Resolves `true` when the delay completes while still active.
+   * Wait for a cancellable gap between flashes.
+   * @param {number} durationMs Gap duration in milliseconds.
+   * @param {number} generation Flash-generation token.
+   * @returns {Promise<boolean>} Whether the sequence remains active after the gap.
    */
   _waitForFlashGap(durationMs, generation) {
     if (!this._isFlashGenerationActive(generation)) return Promise.resolve(false);
@@ -262,13 +236,12 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   }
 
   /**
-   * Run a named CanvasAnimation attribute tween for brightness.
-   *
-   * @param {number} toVal - Target brightness.
-   * @param {number} duration - Tween duration in milliseconds.
-   * @param {Function} easing - Easing function.
-   * @param {number} generation - Flash-generation token captured by the caller.
-   * @returns {Promise<boolean>}
+   * Animate brightness to a target value.
+   * @param {number} toVal Target brightness.
+   * @param {number} duration Animation duration in milliseconds.
+   * @param {Function} easing Easing function.
+   * @param {number} generation Flash-generation token.
+   * @returns {Promise<boolean>} Whether the sequence remains active after the animation.
    */
   _animateBrightness(toVal, duration, easing, generation) {
     if (!this._isFlashGenerationActive(generation)) return Promise.resolve(false);
@@ -297,46 +270,64 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
       });
   }
 
-  /** @returns {number} Current brightness multiplier. */ get brightness() {
+  /** @returns {number} Current brightness multiplier. */
+  get brightness() {
     const uniforms = this._getUniformsSafe();
     return typeof uniforms?.brightness === "number" ? uniforms.brightness : 1;
   }
-  /** @param {number} v */ set brightness(v) {
+  /** @param {number} v Brightness multiplier. */
+  set brightness(v) {
     const uniforms = this._getUniformsSafe();
     if (!uniforms) return;
     uniforms.brightness = Math.max(0, Number(v) || 0);
   }
 
-  /** @returns {number} Mean flash interval (ms). */ get frequency() {
+  /** @returns {number} Mean flash interval in milliseconds. */
+  get frequency() {
     try {
-      return this.options?.frequency;
+      const value = Number(this.options?.frequency);
+      return Number.isFinite(value) ? Math.max(100, Math.min(30000, value)) : 5000;
     } catch {
-      return 500;
+      return 5000;
     }
   }
-  /** @param {number} v */ set frequency(v) {
-    this.options = { ...(this.options ?? {}), frequency: Math.max(1, Number(v) || 1) };
+  /** @param {number} v Mean flash interval in milliseconds. */
+  set frequency(v) {
+    const value = Number(v);
+    this.options = {
+      ...(this.options ?? {}),
+      frequency: Number.isFinite(value) ? Math.max(100, Math.min(30000, value)) : 5000,
+    };
   }
 
-  /** @returns {number} Flash duration (ms). */ get spark_duration() {
+  /** @returns {number} Flash duration in milliseconds. */
+  get spark_duration() {
     try {
-      return this.options?.spark_duration;
+      const value = Number(this.options?.spark_duration);
+      return Number.isFinite(value) ? Math.max(100, Math.min(2000, value)) : 300;
     } catch {
       return 300;
     }
   }
-  /** @param {number} v */ set spark_duration(v) {
-    this.options = { ...(this.options ?? {}), spark_duration: Math.max(1, Number(v) || 1) };
+  /** @param {number} v Flash duration in milliseconds. */
+  set spark_duration(v) {
+    const value = Number(v);
+    this.options = {
+      ...(this.options ?? {}),
+      spark_duration: Number.isFinite(value) ? Math.max(100, Math.min(2000, value)) : 300,
+    };
   }
 
-  /** @returns {boolean} Audio-aware mode. */ get audioAware() {
+  /** @returns {boolean} Whether audio-aware mode is enabled. */
+  get audioAware() {
     try {
       return !!this.options?.audioAware;
     } catch {
       return false;
     }
   }
-  /** @param {boolean} v */ set audioAware(v) {
+  /** @param {boolean} v Audio-aware state. */
+  set audioAware(v) {
     this.options = { ...(this.options ?? {}), audioAware: !!v };
   }
 
@@ -352,13 +343,13 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
       return ["environment"];
     }
   }
-  /** @param {string[]|string} v */
+  /** @param {string[]|string} v Selected audio channels. */
   set audioChannels(v) {
     const arr = Array.isArray(v) ? v : v ? [v] : [];
     this.options = { ...(this.options ?? {}), audioChannels: arr };
   }
 
-  /** @returns {number} Bass threshold 0..1. */
+  /** @returns {number} Bass threshold from zero to one. */
   get audioBassThreshold() {
     try {
       return Math.min(1, Math.max(0, Number(this.options?.audioBassThreshold ?? 0.75)));
@@ -366,16 +357,13 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
       return 0.75;
     }
   }
-  /** @param {number} v */
+  /** @param {number} v Bass threshold. */
   set audioBassThreshold(v) {
     const val = Math.min(1, Math.max(0, Number(v) || 0));
     this.options = { ...(this.options ?? {}), audioBassThreshold: val };
   }
 
-  /**
-   * Configure filter uniforms and state from options. Updates mask options, brightness, timing, and optional region fade percent.
-   * @param {object} [options={}] - Options payload.
-   */
+  /** @param {object} [options={}] Filter options. */
   configure(options = {}) {
     const previousDriverMode = this._getConfiguredDriverMode();
     const previousFrequency = this.frequency;
@@ -416,11 +404,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     if (tickerOptionsChanged) this._refreshDriverTicker();
   }
 
-  /**
-   * Sample a randomized interval (ms) for the next flash using an exponential distribution.
-   * @returns {number} Milliseconds until the next flash.
-   * @private
-   */
+  /** @returns {number} Randomized delay until the next flash in milliseconds. */
   _sampleIntervalMS() {
     const mean = Math.max(50, this.frequency);
     const u = Math.random();
@@ -428,17 +412,13 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     return Math.max(60, exp + (Math.random() - 0.5) * 0.15 * mean);
   }
 
-  /** Mean cooldown around current frequency with ±35% jitter (audio mode). */
+  /** @returns {number} Randomized audio-trigger cooldown in milliseconds. */
   _sampleAudioCooldownMS() {
-    const mean = Math.max(60, this.frequency || 500);
+    const mean = Math.max(100, this.frequency);
     return Math.max(60, mean * (0.65 + Math.random() * 0.7));
   }
 
-  /**
-   * Run a single flash animation with a fast strike, quick falloff, and soft residual tail.
-   * @returns {Promise<boolean>} Resolves with whether the flash completed while still active.
-   * @private
-   */
+  /** @returns {Promise<boolean>} Whether one flash completed while still active. */
   _flashOnce(generation = this._flashGeneration) {
     if (!this._isFlashGenerationActive(generation)) return Promise.resolve(false);
 
@@ -464,7 +444,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
       .catch(() => false);
   }
 
-  /** Start time-based ticker */
+  /** Start the time-based flash driver. */
   _startTimeTicker() {
     const t = canvas?.app?.ticker ?? PIXI.Ticker.shared;
     this._accumMS = 0;
@@ -485,7 +465,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     t.add(this._tickerFn);
   }
 
-  /** Start audio-driven ticker (bass-reactive across selected channels) */
+  /** Start the bass-reactive flash driver. */
   _startAudioTicker() {
     this._audioPrevLevel = 0;
     this._audioWarmFrames = 0;
@@ -533,7 +513,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     t.add(this._tickerFn);
   }
 
-  /** Randomized burst: 1–3 flashes with short jittered gaps (audio mode). */
+  /** Trigger one to three flashes with short randomized gaps. */
   _triggerFlashPattern() {
     const generation = this._flashGeneration;
     this._animating = true;
@@ -557,11 +537,7 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     });
   }
 
-  /**
-   * Trigger a single flash while preventing overlapping manual sync flashes.
-   *
-   * @returns {Promise<boolean>}
-   */
+  /** @returns {Promise<boolean>} Whether a non-overlapping synchronized flash completed. */
   flashOnce() {
     if (this._animating) return Promise.resolve(false);
 
@@ -574,9 +550,8 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   }
 
   /**
-   * Ticker that triggers flashes at intervals
-   * @param {object} [options={}] - Options payload.
-   * @returns {this} The filter instance.
+   * @param {object} [options={}] Filter options.
+   * @returns {this} Filter instance.
    */
   play(options = {}) {
     this._cancelFlashWork();
@@ -588,9 +563,8 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
   }
 
   /**
-   * Removes ticker, resets brightness, and clears mask uniforms.
-   * @param {{skipFading?:boolean}} [opts]
-   * @returns {Promise<any>} Awaitable stop result.
+   * @param {{skipFading?:boolean}} [options] Stop options.
+   * @returns {Promise<any>} Stop result.
    */
   async stop({ skipFading = true } = {}) {
     this._cancelFlashWork();
@@ -609,26 +583,13 @@ export class LightningFilter extends FXMasterFilterEffectMixin(PIXI.Filter) {
     return super.stop?.({ skipFading });
   }
 
-  /**
-   * Destroy the filter and terminate active flash work first.
-   *
-   * @param {object} [options] - PIXI destroy options.
-   * @returns {void}
-   */
+  /** @param {object} [options] Destruction options. */
   destroy(options) {
     this._cancelFlashWork();
     super.destroy(options);
   }
 
-  /**
-   * Run apply lock and scene-rect area
-   * @param {PIXI.FilterSystem} filterSystem - Filter system.
-   * @param {PIXI.RenderTexture} input - Input texture.
-   * @param {PIXI.RenderTexture} output - Output texture.
-   * @param {PIXI.CLEAR_MODES|boolean} clear - Clear flag.
-   * @param {object} currentState - Filter state.
-   * @returns {void}
-   */
+  /** Apply the filter within the scene rendering area. */
   apply(filterSystem, input, output, clear, currentState) {
     return this.applyWithLock(filterSystem, input, output, clear, currentState, {
       area: "sceneRect",

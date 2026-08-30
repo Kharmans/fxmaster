@@ -2,7 +2,7 @@ import { packageId } from "./constants.js";
 
 /**
  * Cached setting values, keyed by setting name.
- * 
+ *
  * Avoids WorldSettings#getSetting - linear scan of all settings documents,
  * which adds latency that can add up with enough call frequency.
  *
@@ -13,10 +13,10 @@ let cacheHooksRegistered = false;
 
 /**
  * Read a cached boolean module setting.
- * 
+ *
  * Invalidates on any possible action that can result in a setting change.
  * Failed reads are not cached and hooks register on first use
- * 
+ *
  * @param {string} key
  * @returns {boolean}
  */

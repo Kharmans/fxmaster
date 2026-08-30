@@ -4,6 +4,7 @@ import { resolveDarknessActivationEnabled } from "./utils/darkness.js";
 import { logger } from "./logger.js";
 import { isCompassDirectionParameter } from "./common/compass-direction.js";
 import { isMinuteLabelParameter } from "./common/parameter-label-output.js";
+import { compressNormalizedRangeValue } from "./common/effect-parameter-normalization.js";
 
 const FXMASTER_PLUS_ID = "fxmaster-plus";
 const PSFX_AMBIENCE_MODULE_ID = "psfx-ambience";
@@ -464,6 +465,24 @@ function soundFxManualChoicesForEffect(effectCls, current, direct = null) {
   }
 }
 
+function normalizedRangeDisplayValue(parameterConfig, value) {
+  const range = parameterConfig?.__fxmInternalRange;
+  const numeric = Number(value);
+  if (!range || !Number.isFinite(numeric)) return value;
+
+  const uiMin = Number(parameterConfig.min ?? 0);
+  const uiMax = Number(parameterConfig.max ?? 1);
+  const internalMin = Number(range.min);
+  const internalMax = Number(range.max);
+  if (![uiMin, uiMax, internalMin, internalMax].every(Number.isFinite)) return numeric;
+
+  const epsilon = 1e-9;
+  const outsideUiRange = numeric < uiMin - epsilon || numeric > uiMax + epsilon;
+  const insideInternalRange =
+    numeric >= Math.min(internalMin, internalMax) - epsilon && numeric <= Math.max(internalMin, internalMax) + epsilon;
+  return outsideUiRange && insideInternalRange ? compressNormalizedRangeValue(parameterConfig, numeric) : numeric;
+}
+
 function synchronizedDirectionFormContext() {
   const sceneId = canvas?.scene?.id ?? null;
   return sceneId ? { scope: "scene", sceneId } : null;
@@ -506,6 +525,9 @@ export function registerHandlebarsHelpers() {
       const raw = options?.[parameterName];
 
       let _default = raw == null || raw === "" ? defaultValue : raw;
+      if (parameterConfig.type === "range") {
+        _default = normalizedRangeDisplayValue(parameterConfig, _default);
+      }
       if (parameterName === "darknessActivationEnabled") {
         _default = resolveDarknessActivationEnabled({
           darknessActivationEnabled: raw,
