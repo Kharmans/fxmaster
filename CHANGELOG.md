@@ -1,5 +1,14 @@
 # Changelog
 
+## [v8.3.6] - 2026-08-30
+- Added additional parameters to the Predator effect. Now includes Thermal options to make the Predator effect more realistic.
+- Added new Above Darkness parameter to Filter Effects to allow them to play above Foundry darkness. This applies to Lightning, Lightning Bolts, Aurora Borealis, Fire, Neon, and Sunlight
+- Added module setting cache accessor, should help performance on scenes with many tokens. Thanks Hamilcarbarcas!
+- Added aboveDarkness as a Presets API optional, default true
+- Some performance improvements for large scenes using Suppression.
+- Resolved bug where tokens on different levels could display cutouts in a suppression region which would incorrectly display particle or filter effects
+- Updated localizations for August FXMaster+ effect, Neon
+
 ## [v8.3.5] - 2026-08-09
 - Added new module setting 'Disable Grid Movement Highlighting'. This setting will disable the full grid highlighting for a tokens path in gridded mode. This setting is meant for users who want to more clearly see Token Interaction events (tokens disrupting leaves, popping bubbles, etc)
 - Updated Cloudy and Partly Cloudy presets to have an opacity of 0.5
