@@ -8,8 +8,8 @@
     "ParticleEffects": "Efeitos de Partículas",
     "InvertMask": "Inverter Máscara de Efeitos",
     "Filters": "Efeitos de Filtro",
-    "SaveMacro": "Salvar Efeitos de Partícula e Filtro como Macro",
-    "ClearFX": "Limpar Efeitos de Partícula e Filtros da Cena (Clique Direito: Desativar Efeitos da Região)",
+    "SaveMacro": "Salvar Efeitos e Filtro como Macro",
+    "ClearFX": "Limpar Efeitos e Filtros da Cena (Clique Direito: Desativar Efeitos da Região)",
     "ToolsActive": "Ferramentas do FXMaster"
   },
   "FXMASTER": {
